@@ -28,8 +28,9 @@ pub struct App {
     pub config: Config,
     pub view: View,
     pub should_quit: bool,
+    pub dashboard_state: dashboard::DashboardState,
     pub sessions_state: sessions::SessionsState,
-    pub scroll: usize,  // generic scroll offset for current view
+    pub scroll: usize,  // generic scroll offset for non-dashboard views
     watcher_rx: Option<mpsc::Receiver<Vec<String>>>,
 }
 
@@ -41,6 +42,7 @@ impl App {
             config,
             view: View::Dashboard,
             should_quit: false,
+            dashboard_state: dashboard::DashboardState::new(),
             sessions_state: sessions::SessionsState::new(),
             scroll: 0,
             watcher_rx,
@@ -70,6 +72,48 @@ impl App {
 
     fn handle_key(&mut self, code: KeyCode) {
         match self.view {
+            View::Dashboard => {
+                match code {
+                    KeyCode::Char('q') => self.should_quit = true,
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.dashboard_state.move_up();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let active_count = self.store.active_sessions(24).len();
+                        let project_count = self.store.by_project().len();
+                        self.dashboard_state.move_down(active_count, project_count);
+                    }
+                    KeyCode::Tab | KeyCode::BackTab => {
+                        let active_count = self.store.active_sessions(24).len();
+                        self.dashboard_state.switch_focus(active_count);
+                    }
+                    KeyCode::Enter => {
+                        self.dashboard_state.enter(&self.store);
+                    }
+                    KeyCode::Esc => {
+                        if !self.dashboard_state.back() {
+                            // already at top level, do nothing
+                        }
+                    }
+                    KeyCode::Char('d') if self.dashboard_state.detail.is_none() => {
+                        self.scroll = 0; self.view = View::Daily;
+                    }
+                    KeyCode::Char('t') if self.dashboard_state.detail.is_none() => {
+                        self.scroll = 0; self.view = View::Trends;
+                    }
+                    KeyCode::Char('m') if self.dashboard_state.detail.is_none() => {
+                        self.scroll = 0; self.view = View::Models;
+                    }
+                    KeyCode::Char('i') if self.dashboard_state.detail.is_none() => {
+                        self.scroll = 0; self.view = View::Insights;
+                    }
+                    KeyCode::Char('s') if self.dashboard_state.detail.is_none() => {
+                        self.sessions_state = sessions::SessionsState::new();
+                        self.view = View::Sessions;
+                    }
+                    _ => {}
+                }
+            }
             View::Sessions => {
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
@@ -113,7 +157,7 @@ impl App {
 
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
-            View::Dashboard => dashboard::render(frame, &self.store, &self.config, self.scroll),
+            View::Dashboard => dashboard::render(frame, &self.store, &self.config, &self.dashboard_state),
             View::Daily => daily::render(frame, &self.store, &self.config, self.scroll),
             View::Trends => trends::render(frame, &self.store, &self.config),
             View::Models => models::render(frame, &self.store, &self.config),

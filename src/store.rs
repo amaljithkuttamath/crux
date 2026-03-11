@@ -111,6 +111,27 @@ pub struct CostBreakdown {
     pub output: f64,
 }
 
+/// Per-turn snapshot for session timeline view
+#[derive(Debug, Clone)]
+pub struct TurnSnapshot {
+    pub turn_index: usize,
+    pub timestamp: chrono::DateTime<Utc>,
+    pub context_size: u64,       // cache_read + cache_creation (proxy for context window fill)
+    pub cost: f64,
+    pub output_tokens: u64,
+    pub is_compaction: bool,     // context dropped significantly from previous turn
+    pub context_pct: f64,        // percentage of 167K ceiling
+}
+
+/// Timeline of a session: turns + notable events
+#[derive(Debug, Clone)]
+pub struct SessionTimeline {
+    pub turns: Vec<TurnSnapshot>,
+    pub total_cost: f64,
+    pub duration_minutes: i64,
+    pub compaction_count: usize,
+}
+
 impl Aggregation {
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens + self.output_tokens + self.cache_creation_tokens + self.cache_read_tokens
@@ -686,6 +707,57 @@ impl Store {
             cost_per_1k_output,
             context_growth_premium,
             messages_since_compaction,
+        })
+    }
+
+    /// Build a timeline of per-turn snapshots for session detail view
+    pub fn session_timeline(&self, session_id: &str) -> Option<SessionTimeline> {
+        let mut recs: Vec<&UsageRecord> = self.records
+            .iter()
+            .filter(|r| r.session_id == session_id)
+            .collect();
+        if recs.is_empty() { return None; }
+        recs.sort_by_key(|r| r.timestamp);
+
+        let ceiling = 167_000.0f64;
+        let mut turns = Vec::new();
+        let mut compaction_count = 0usize;
+        let mut prev_ctx = 0u64;
+
+        for (i, r) in recs.iter().enumerate() {
+            let ctx = r.cache_read_tokens + r.cache_creation_tokens;
+            let is_compaction = i > 0 && ctx < prev_ctx.saturating_sub(10_000);
+            if is_compaction { compaction_count += 1; }
+
+            let cost = pricing::estimate_cost(
+                &r.model, r.input_tokens, r.output_tokens,
+                r.cache_creation_tokens, r.cache_read_tokens,
+            );
+
+            turns.push(TurnSnapshot {
+                turn_index: i,
+                timestamp: r.timestamp,
+                context_size: ctx,
+                cost,
+                output_tokens: r.output_tokens,
+                is_compaction,
+                context_pct: (ctx as f64 / ceiling * 100.0).min(100.0),
+            });
+            prev_ctx = ctx;
+        }
+
+        let total_cost = turns.iter().map(|t| t.cost).sum();
+        let duration_minutes = if turns.len() >= 2 {
+            (turns.last().unwrap().timestamp - turns[0].timestamp).num_minutes()
+        } else {
+            0
+        };
+
+        Some(SessionTimeline {
+            turns,
+            total_cost,
+            duration_minutes,
+            compaction_count,
         })
     }
 
