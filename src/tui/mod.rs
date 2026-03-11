@@ -114,7 +114,7 @@ impl App {
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
             View::Dashboard => dashboard::render(frame, &self.store, &self.config, self.scroll),
-            View::Daily => daily::render(frame, &self.store, &self.config),
+            View::Daily => daily::render(frame, &self.store, &self.config, self.scroll),
             View::Trends => trends::render(frame, &self.store, &self.config),
             View::Models => models::render(frame, &self.store, &self.config),
             View::Insights => insights::render(frame, &self.store, &self.config),

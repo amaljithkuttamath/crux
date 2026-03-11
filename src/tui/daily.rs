@@ -5,7 +5,7 @@ use super::widgets::*;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
+pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config, scroll: usize) {
     let area = frame.area();
     let w = area.width;
 
@@ -38,12 +38,13 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
     frame.render_widget(Paragraph::new(header), chunks[1]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
 
-    let days = store.by_day(30);
+    let days = store.by_day(90);
     let today = chrono::Utc::now().date_naive();
     let max_rows = chunks[3].height as usize;
+    let clamped_scroll = scroll.min(days.len().saturating_sub(max_rows));
     let mut lines: Vec<Line> = Vec::new();
 
-    for day in days.iter().take(max_rows) {
+    for day in days.iter().skip(clamped_scroll).take(max_rows) {
         let is_today = day.date == today;
         let fg = if is_today { FG } else { FG_MUTED };
         let cost_fg = if is_today { ACCENT } else { FG_MUTED };
@@ -62,11 +63,28 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
         ]));
     }
 
+    // Scroll indicator
+    if days.len() > max_rows {
+        let remaining = days.len().saturating_sub(clamped_scroll + max_rows);
+        if remaining > 0 {
+            if let Some(last) = lines.last_mut() {
+                *last = Line::from(vec![
+                    Span::styled(
+                        format!("   ... {} more days", remaining),
+                        Style::default().fg(FG_FAINT),
+                    ),
+                ]);
+            }
+        }
+    }
+
     frame.render_widget(Paragraph::new(lines), chunks[3]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
     let help = Line::from(vec![
-        Span::styled("   esc", Style::default().fg(ACCENT)),
+        Span::styled("   \u{2191}\u{2193}", Style::default().fg(ACCENT)),
+        Span::styled(" scroll   ", Style::default().fg(FG_FAINT)),
+        Span::styled("esc", Style::default().fg(ACCENT)),
         Span::styled(" back   ", Style::default().fg(FG_FAINT)),
         Span::styled("q", Style::default().fg(ACCENT)),
         Span::styled(" quit", Style::default().fg(FG_FAINT)),

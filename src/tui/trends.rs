@@ -18,7 +18,7 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
             Constraint::Min(5),    // bar chart
             Constraint::Length(1),  // divider
             Constraint::Length(1),  // model header
-            Constraint::Length(4),  // model breakdown
+            Constraint::Min(3),    // model breakdown
             Constraint::Length(1),  // divider
             Constraint::Length(1),  // help
         ])
@@ -30,7 +30,7 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
     ]));
     frame.render_widget(title, chunks[0]);
 
-    // ── Bar chart ──
+    // Bar chart
     let days = store.by_day(14);
     let max_total = days
         .iter()
@@ -50,11 +50,9 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
     }
 
     frame.render_widget(Paragraph::new(lines), chunks[2]);
-
-    // Divider
     frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
-    // ── Model breakdown ──
+    // Model breakdown
     let model_header = Line::from(vec![
         Span::styled("   model breakdown", Style::default().fg(ACCENT)),
         Span::styled(
@@ -66,9 +64,10 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
 
     let models = store.by_model();
     let total_records: usize = models.iter().map(|m| m.record_count).sum();
+    let model_rows = chunks[5].height as usize;
     let mut model_lines: Vec<Line> = Vec::new();
 
-    for m in models.iter().take(4) {
+    for m in models.iter().take(model_rows) {
         let pct = if total_records > 0 { m.record_count * 100 / total_records } else { 0 };
         let total_tok = m.input_tokens + m.output_tokens;
         model_lines.push(Line::from(vec![
@@ -84,8 +83,6 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config) {
     }
 
     frame.render_widget(Paragraph::new(model_lines), chunks[5]);
-
-    // Divider
     frame.render_widget(Paragraph::new(divider(w)), chunks[6]);
 
     let help = Line::from(vec![

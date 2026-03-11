@@ -140,6 +140,20 @@ impl Store {
         sessions
     }
 
+    /// Sessions active in the last N hours, with full analysis
+    pub fn active_sessions(&self, hours: i64) -> Vec<(&SessionMeta, SessionAnalysis)> {
+        let cutoff = Utc::now() - Duration::hours(hours);
+        let mut active: Vec<(&SessionMeta, SessionAnalysis)> = self.session_metas.iter()
+            .filter(|s| s.end_time >= cutoff && s.user_count > 0)
+            .filter_map(|s| {
+                let analysis = self.analyze_session(&s.session_id)?;
+                Some((s, analysis))
+            })
+            .collect();
+        active.sort_by(|a, b| b.0.end_time.cmp(&a.0.end_time));
+        active
+    }
+
     /// Search sessions by keyword in first_message
     pub fn search_sessions(&self, query: &str) -> Vec<&SessionMeta> {
         let q = query.to_lowercase();
