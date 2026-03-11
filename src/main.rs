@@ -78,11 +78,18 @@ fn load_store(config: &Config) -> anyhow::Result<Store> {
             for entry in std::fs::read_dir(&project_dir)? {
                 let path = entry?.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                    if let Ok(records) = parser::parse_file(path.to_str().unwrap_or_default()) {
+                    let path_str = path.to_str().unwrap_or_default();
+                    if let Ok(records) = parser::parse_file(path_str) {
                         for r in records {
                             if !config.is_excluded(&r.project) {
                                 store.add(r);
                             }
+                        }
+                    }
+                    // Load lightweight session metadata
+                    if let Ok(meta) = parser::conversation::parse_session_meta(path_str) {
+                        if meta.user_count > 0 && !config.is_excluded(&meta.project) {
+                            store.add_session_meta(meta);
                         }
                     }
                 }

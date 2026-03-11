@@ -236,7 +236,9 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
         Span::styled("m", Style::default().fg(ACCENT)),
         Span::styled(" models   ", Style::default().fg(FG_MUTED)),
         Span::styled("i", Style::default().fg(ACCENT)),
-        Span::styled(" insights", Style::default().fg(FG_MUTED)),
+        Span::styled(" insights   ", Style::default().fg(FG_MUTED)),
+        Span::styled("s", Style::default().fg(ACCENT)),
+        Span::styled(" sessions", Style::default().fg(FG_MUTED)),
     ]);
     frame.render_widget(Paragraph::new(help), chunks[10]);
 }

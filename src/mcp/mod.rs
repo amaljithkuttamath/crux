@@ -3,7 +3,7 @@ pub mod tools;
 use crate::config::Config;
 use crate::pricing;
 use crate::store::Store;
-use tools::SessionIdInput;
+use tools::{SessionIdInput, ListSessionsInput, SearchSessionsInput};
 
 use rmcp::{
     ErrorData,
@@ -162,6 +162,103 @@ impl UsageServer {
             eff = analysis.output_efficiency,
             since = analysis.messages_since_compaction,
             premium = pricing::format_cost(analysis.context_growth_premium),
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(response)]))
+    }
+
+    #[tool(description = "List recent coding sessions with metadata: project, topic, message count, duration, cost. Use this to find specific past conversations or understand recent work patterns.")]
+    async fn list_sessions(
+        &self,
+        Parameters(input): Parameters<ListSessionsInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let limit = input.limit.unwrap_or(10);
+        let sessions = self.store.sessions_by_time();
+
+        let filtered: Vec<_> = if let Some(ref proj) = input.project {
+            let p = proj.to_lowercase();
+            sessions.into_iter()
+                .filter(|s| s.project.to_lowercase().contains(&p))
+                .take(limit)
+                .collect()
+        } else {
+            sessions.into_iter().take(limit).collect()
+        };
+
+        if filtered.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text("No sessions found.")]));
+        }
+
+        let mut lines = Vec::new();
+        for s in &filtered {
+            let cost = self.store.session_cost(&s.session_id);
+            let dur = s.duration_minutes();
+            let dur_str = if dur >= 60 {
+                format!("{}h{:02}m", dur / 60, dur % 60)
+            } else {
+                format!("{}m", dur.max(1))
+            };
+            lines.push(format!(
+                "{date}  {project:<20}  {msgs:>4} msgs  {dur:>6}  {cost:>8}  {topic}",
+                date = s.start_time.format("%Y-%m-%d %H:%M"),
+                project = s.project,
+                msgs = s.user_count,
+                dur = dur_str,
+                cost = pricing::format_cost(cost),
+                topic = s.first_message,
+            ));
+        }
+
+        let response = format!(
+            "{} sessions (showing {}):\n\n{}",
+            self.store.sessions_by_time().len(),
+            filtered.len(),
+            lines.join("\n"),
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(response)]))
+    }
+
+    #[tool(description = "Search past sessions by keyword. Searches across session topics and project names. Returns matching sessions with metadata.")]
+    async fn search_sessions(
+        &self,
+        Parameters(input): Parameters<SearchSessionsInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let limit = input.limit.unwrap_or(10);
+        let results = self.store.search_sessions(&input.query);
+
+        if results.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                format!("No sessions found matching '{}'.", input.query)
+            )]));
+        }
+
+        let mut lines = Vec::new();
+        for s in results.iter().take(limit) {
+            let cost = self.store.session_cost(&s.session_id);
+            let dur = s.duration_minutes();
+            let dur_str = if dur >= 60 {
+                format!("{}h{:02}m", dur / 60, dur % 60)
+            } else {
+                format!("{}m", dur.max(1))
+            };
+            lines.push(format!(
+                "{date}  {project:<20}  {msgs:>4} msgs  {dur:>6}  {cost:>8}  {topic}",
+                date = s.start_time.format("%Y-%m-%d %H:%M"),
+                project = s.project,
+                msgs = s.user_count,
+                dur = dur_str,
+                cost = pricing::format_cost(cost),
+                topic = s.first_message,
+            ));
+        }
+
+        let response = format!(
+            "Found {} sessions matching '{}' (showing {}):\n\n{}",
+            results.len(),
+            input.query,
+            lines.len().min(limit),
+            lines.join("\n"),
         );
 
         Ok(CallToolResult::success(vec![Content::text(response)]))

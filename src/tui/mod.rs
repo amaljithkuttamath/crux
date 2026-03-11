@@ -3,6 +3,7 @@ pub mod daily;
 pub mod trends;
 pub mod models;
 pub mod insights;
+pub mod sessions;
 pub mod widgets;
 
 use crate::config::Config;
@@ -19,6 +20,7 @@ pub enum View {
     Trends,
     Models,
     Insights,
+    Sessions,
 }
 
 pub struct App {
@@ -26,6 +28,7 @@ pub struct App {
     pub config: Config,
     pub view: View,
     pub should_quit: bool,
+    pub sessions_state: sessions::SessionsState,
     watcher_rx: Option<mpsc::Receiver<Vec<String>>>,
 }
 
@@ -37,6 +40,7 @@ impl App {
             config,
             view: View::Dashboard,
             should_quit: false,
+            sessions_state: sessions::SessionsState::new(),
             watcher_rx,
         }
     }
@@ -50,15 +54,7 @@ impl App {
             if event::poll(tick_rate)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        match key.code {
-                            KeyCode::Char('q') => self.should_quit = true,
-                            KeyCode::Char('d') => self.view = View::Daily,
-                            KeyCode::Char('t') => self.view = View::Trends,
-                            KeyCode::Char('m') => self.view = View::Models,
-                            KeyCode::Char('i') => self.view = View::Insights,
-                            KeyCode::Esc => self.view = View::Dashboard,
-                            _ => {}
-                        }
+                        self.handle_key(key.code);
                     }
                 }
             }
@@ -70,13 +66,51 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut ratatui::Frame) {
+    fn handle_key(&mut self, code: KeyCode) {
+        match self.view {
+            View::Sessions => {
+                match code {
+                    KeyCode::Char('q') => self.should_quit = true,
+                    KeyCode::Up | KeyCode::Char('k') => self.sessions_state.move_up(),
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let max = self.store.sessions_by_time().len();
+                        self.sessions_state.move_down(max);
+                    }
+                    KeyCode::Enter => self.sessions_state.enter(&self.store),
+                    KeyCode::Esc => {
+                        if !self.sessions_state.back() {
+                            self.view = View::Dashboard;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                match code {
+                    KeyCode::Char('q') => self.should_quit = true,
+                    KeyCode::Char('d') => self.view = View::Daily,
+                    KeyCode::Char('t') => self.view = View::Trends,
+                    KeyCode::Char('m') => self.view = View::Models,
+                    KeyCode::Char('i') => self.view = View::Insights,
+                    KeyCode::Char('s') => {
+                        self.sessions_state = sessions::SessionsState::new();
+                        self.view = View::Sessions;
+                    }
+                    KeyCode::Esc => self.view = View::Dashboard,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
             View::Dashboard => dashboard::render(frame, &self.store, &self.config),
             View::Daily => daily::render(frame, &self.store, &self.config),
             View::Trends => trends::render(frame, &self.store, &self.config),
             View::Models => models::render(frame, &self.store, &self.config),
             View::Insights => insights::render(frame, &self.store, &self.config),
+            View::Sessions => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state),
         }
     }
 

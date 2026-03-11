@@ -1,4 +1,5 @@
 pub mod watcher;
+pub mod conversation;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;

@@ -1,4 +1,5 @@
 use crate::parser::UsageRecord;
+use crate::parser::conversation::SessionMeta;
 use crate::pricing;
 use chrono::{Duration, NaiveDate, Timelike, Utc};
 use std::collections::{HashMap, HashSet};
@@ -6,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone)]
 pub struct Store {
     records: Vec<UsageRecord>,
+    session_metas: Vec<SessionMeta>,
 }
 
 #[derive(Debug, Default)]
@@ -119,11 +121,43 @@ impl Store {
     pub fn new() -> Self {
         Self {
             records: Vec::new(),
+            session_metas: Vec::new(),
         }
     }
 
     pub fn add(&mut self, record: UsageRecord) {
         self.records.push(record);
+    }
+
+    pub fn add_session_meta(&mut self, meta: SessionMeta) {
+        self.session_metas.push(meta);
+    }
+
+    /// Sessions sorted by start time (most recent first)
+    pub fn sessions_by_time(&self) -> Vec<&SessionMeta> {
+        let mut sessions: Vec<&SessionMeta> = self.session_metas.iter().collect();
+        sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        sessions
+    }
+
+    /// Search sessions by keyword in first_message
+    pub fn search_sessions(&self, query: &str) -> Vec<&SessionMeta> {
+        let q = query.to_lowercase();
+        let mut results: Vec<&SessionMeta> = self.session_metas.iter()
+            .filter(|s| s.first_message.to_lowercase().contains(&q)
+                || s.project.to_lowercase().contains(&q))
+            .collect();
+        results.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        results
+    }
+
+    /// Get cost for a specific session from usage records
+    pub fn session_cost(&self, session_id: &str) -> f64 {
+        self.records.iter()
+            .filter(|r| r.session_id == session_id)
+            .map(|r| pricing::estimate_cost(&r.model, r.input_tokens, r.output_tokens,
+                r.cache_creation_tokens, r.cache_read_tokens))
+            .sum()
     }
 
     pub fn len(&self) -> usize {
