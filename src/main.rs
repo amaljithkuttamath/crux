@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
+use rmcp::ServiceExt;
 
 mod cli;
 mod config;
+mod mcp;
 mod parser;
 mod pricing;
 mod store;
@@ -13,7 +15,7 @@ use store::Store;
 #[derive(Parser)]
 #[command(
     name = "usagetracker",
-    about = "Terminal dashboard for AI coding tool token usage"
+    about = "Terminal dashboard and MCP session analyst for AI coding tool token usage"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -30,9 +32,12 @@ enum Commands {
     Project,
     /// List sessions with token counts
     Session,
+    /// Run as MCP server over stdio
+    Serve,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli_args = Cli::parse();
     let config = Config::load();
     let store = load_store(&config)?;
@@ -42,6 +47,13 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Daily) => print!("{}", cli::format_daily(&store, 7)),
         Some(Commands::Project) => print!("{}", cli::format_projects(&store)),
         Some(Commands::Session) => print!("{}", cli::format_sessions(&store)),
+        Some(Commands::Serve) => {
+            let server = mcp::UsageServer::new(store, config);
+            let service = server
+                .serve(rmcp::transport::stdio())
+                .await?;
+            service.waiting().await?;
+        }
         None => {
             let terminal = ratatui::init();
             let result = tui::App::new(store, config).run(terminal);

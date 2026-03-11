@@ -4,3 +4,4 @@ pub mod config;
 pub mod cli;
 pub mod tui;
 pub mod pricing;
+pub mod mcp;

@@ -19,6 +19,9 @@ notify = "7"
 toml = "0.8"
 dirs = "6"
 anyhow = "1"
+rmcp = { version = "1.2", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
+schemars = "1.0"
 
 [lib]
 name = "usagetracker"

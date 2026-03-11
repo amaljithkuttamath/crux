@@ -3,6 +3,7 @@ use crate::pricing;
 use chrono::{Duration, NaiveDate, Timelike, Utc};
 use std::collections::{HashMap, HashSet};
 
+#[derive(Clone)]
 pub struct Store {
     records: Vec<UsageRecord>,
 }
@@ -78,6 +79,34 @@ pub struct InsightsData {
     pub model_shift: Vec<(String, f64, f64)>, // (model, this_week_pct, last_week_pct)
     pub sessions: Vec<SessionInsight>, // recent sessions for detail
     pub daily_costs: Vec<f64>,        // last 7 days of costs for sparkline
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionAnalysis {
+    pub session_id: String,
+    pub project: String,
+    pub model: String,
+    pub message_count: usize,
+    pub total_cost: f64,
+    pub cost_breakdown: CostBreakdown,
+    pub context_current: u64,
+    pub context_initial: u64,
+    pub context_peak: u64,
+    pub context_growth: f64,
+    pub cache_hit_rate: f64,
+    pub output_efficiency: f64,
+    pub compaction_count: usize,
+    pub cost_per_1k_output: f64,
+    pub context_growth_premium: f64,
+    pub messages_since_compaction: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CostBreakdown {
+    pub cache_read: f64,
+    pub cache_write: f64,
+    pub input: f64,
+    pub output: f64,
 }
 
 impl Aggregation {
@@ -511,6 +540,118 @@ impl Store {
             sessions,
             daily_costs,
         }
+    }
+
+    pub fn analyze_session(&self, session_id: &str) -> Option<SessionAnalysis> {
+        let mut recs: Vec<&UsageRecord> = self.records
+            .iter()
+            .filter(|r| r.session_id == session_id)
+            .collect();
+        if recs.is_empty() { return None; }
+        recs.sort_by_key(|r| r.timestamp);
+
+        let project = recs[0].project.clone();
+        let model = simplify_model(&recs[0].model);
+
+        // Context trajectory (cache_read + cache_creation per message)
+        let contexts: Vec<u64> = recs.iter()
+            .map(|r| r.cache_read_tokens + r.cache_creation_tokens)
+            .collect();
+        let context_initial = contexts[0].max(1);
+        let context_current = *contexts.last().unwrap_or(&1);
+        let context_peak = contexts.iter().copied().max().unwrap_or(1);
+        let context_growth = context_current as f64 / context_initial as f64;
+
+        // Compaction detection (context drops > 10K tokens)
+        let mut compaction_count = 0usize;
+        let mut last_compaction_idx = 0usize;
+        for i in 1..contexts.len() {
+            if contexts[i] < contexts[i-1].saturating_sub(10_000) {
+                compaction_count += 1;
+                last_compaction_idx = i;
+            }
+        }
+        let messages_since_compaction = if compaction_count > 0 {
+            contexts.len() - last_compaction_idx
+        } else {
+            contexts.len()
+        };
+
+        // Totals
+        let total_input: u64 = recs.iter().map(|r| r.input_tokens).sum();
+        let total_output: u64 = recs.iter().map(|r| r.output_tokens).sum();
+        let total_cache_read: u64 = recs.iter().map(|r| r.cache_read_tokens).sum();
+        let total_cache_write: u64 = recs.iter().map(|r| r.cache_creation_tokens).sum();
+
+        // Cost breakdown
+        let p = pricing::pricing_for_model(&recs[0].model);
+        let cost_cr = total_cache_read as f64 / 1e6 * p.cache_read_per_m;
+        let cost_cw = total_cache_write as f64 / 1e6 * p.cache_write_per_m;
+        let cost_in = total_input as f64 / 1e6 * p.input_per_m;
+        let cost_out = total_output as f64 / 1e6 * p.output_per_m;
+        let total_cost = cost_cr + cost_cw + cost_in + cost_out;
+
+        // Cache hit rate
+        let cache_denom = total_cache_read + total_input;
+        let cache_hit_rate = if cache_denom > 0 {
+            total_cache_read as f64 / cache_denom as f64
+        } else { 0.0 };
+
+        // Output efficiency (output / total context as percentage)
+        let total_context: u64 = recs.iter()
+            .map(|r| r.cache_read_tokens + r.cache_creation_tokens)
+            .sum();
+        let output_efficiency = if total_context > 0 {
+            total_output as f64 / total_context as f64 * 100.0
+        } else { 0.0 };
+
+        // Cost per 1K output
+        let cost_per_1k_output = if total_output > 0 {
+            total_cost / (total_output as f64 / 1000.0)
+        } else { 0.0 };
+
+        // Context growth premium: actual cost vs hypothetical fresh-context cost
+        let hypothetical_cr = context_initial * recs.len() as u64;
+        let fresh_cost = hypothetical_cr as f64 / 1e6 * p.cache_read_per_m
+            + cost_cw + cost_in + cost_out;
+        let context_growth_premium = (total_cost - fresh_cost).max(0.0);
+
+        Some(SessionAnalysis {
+            session_id: session_id.to_string(),
+            project,
+            model,
+            message_count: recs.len(),
+            total_cost,
+            cost_breakdown: CostBreakdown {
+                cache_read: cost_cr,
+                cache_write: cost_cw,
+                input: cost_in,
+                output: cost_out,
+            },
+            context_current,
+            context_initial,
+            context_peak,
+            context_growth,
+            cache_hit_rate,
+            output_efficiency,
+            compaction_count,
+            cost_per_1k_output,
+            context_growth_premium,
+            messages_since_compaction,
+        })
+    }
+
+    pub fn most_recent_session_id(&self) -> Option<String> {
+        self.records
+            .iter()
+            .max_by_key(|r| r.timestamp)
+            .map(|r| r.session_id.clone())
+    }
+
+    pub fn avg_session_cost_historical(&self) -> f64 {
+        let all = self.all_time();
+        if all.session_count == 0 { return 0.0; }
+        all.cost / all.session_count as f64
     }
 }
 
