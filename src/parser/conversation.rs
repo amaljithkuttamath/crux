@@ -5,6 +5,7 @@ use std::collections::HashMap;
 /// Lightweight session metadata, kept in memory for the session list.
 /// ~200 bytes per session. No conversation content stored.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SessionMeta {
     pub session_id: String,
     pub project: String,
@@ -27,6 +28,7 @@ impl SessionMeta {
 
 /// Full conversation detail, loaded lazily when user drills in.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConversationMessage {
     pub timestamp: DateTime<Utc>,
     pub role: String,
@@ -39,8 +41,6 @@ struct RawLine {
     #[serde(rename = "type")]
     record_type: Option<String>,
     timestamp: Option<String>,
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
     message: Option<serde_json::Value>,
 }
 

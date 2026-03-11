@@ -54,6 +54,7 @@ pub struct ModelSummary {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SessionInsight {
     pub session_id: String,
     pub project: String,
@@ -69,6 +70,7 @@ pub struct SessionInsight {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct InsightsData {
     pub cache_hit_ratio: f64,         // 0.0-1.0
     pub output_efficiency: f64,       // output/input ratio
@@ -113,6 +115,7 @@ pub struct CostBreakdown {
 
 /// Per-turn snapshot for session timeline view
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TurnSnapshot {
     pub turn_index: usize,
     pub timestamp: chrono::DateTime<Utc>,
@@ -195,20 +198,6 @@ impl Store {
             .sum()
     }
 
-    pub fn len(&self) -> usize {
-        self.records.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    pub fn total_cost(&self) -> f64 {
-        self.records.iter().map(|r| {
-            pricing::estimate_cost(&r.model, r.input_tokens, r.output_tokens, r.cache_creation_tokens, r.cache_read_tokens)
-        }).sum()
-    }
-
     fn aggregate_records<'a>(&'a self, filter: impl Fn(&UsageRecord) -> bool) -> Aggregation {
         let mut agg = Aggregation::default();
         let mut sessions = HashSet::new();
@@ -257,34 +246,6 @@ impl Store {
     pub fn by_model(&self) -> Vec<ModelSummary> {
         let mut map: HashMap<String, ModelSummary> = HashMap::new();
         for r in &self.records {
-            let key = simplify_model(&r.model);
-            let entry = map.entry(key.clone()).or_insert(ModelSummary {
-                name: key,
-                input_tokens: 0,
-                output_tokens: 0,
-                record_count: 0,
-                cost: 0.0,
-            });
-            entry.input_tokens += r.input_tokens;
-            entry.output_tokens += r.output_tokens;
-            entry.record_count += 1;
-            entry.cost += pricing::estimate_cost(
-                &r.model, r.input_tokens, r.output_tokens,
-                r.cache_creation_tokens, r.cache_read_tokens,
-            );
-        }
-        let mut models: Vec<ModelSummary> = map.into_values().collect();
-        models.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
-        models
-    }
-
-    pub fn by_model_window(&self, duration: Duration) -> Vec<ModelSummary> {
-        let cutoff = Utc::now() - duration;
-        let mut map: HashMap<String, ModelSummary> = HashMap::new();
-        for r in &self.records {
-            if r.timestamp < cutoff {
-                continue;
-            }
             let key = simplify_model(&r.model);
             let entry = map.entry(key.clone()).or_insert(ModelSummary {
                 name: key,
@@ -384,32 +345,10 @@ impl Store {
         days_vec
     }
 
-    pub fn burn_rate(&self, window: Duration) -> f64 {
-        let agg = self.rolling_window(window);
-        let hours = window.num_hours().max(1) as f64;
-        agg.total_tokens() as f64 / hours
-    }
-
     pub fn cost_rate(&self, window: Duration) -> f64 {
         let agg = self.rolling_window(window);
         let hours = window.num_hours().max(1) as f64;
         agg.cost / hours
-    }
-
-    pub fn avg_tokens_per_session(&self) -> u64 {
-        let all = self.all_time();
-        if all.session_count == 0 { return 0; }
-        all.total_tokens() / all.session_count as u64
-    }
-
-    pub fn avg_cost_per_session(&self) -> f64 {
-        let all = self.all_time();
-        if all.session_count == 0 { return 0.0; }
-        all.cost / all.session_count as f64
-    }
-
-    pub fn insights(&self) -> InsightsData {
-        self.insights_with_days(7)
     }
 
     pub fn insights_with_days(&self, sparkline_days: usize) -> InsightsData {

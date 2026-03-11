@@ -485,14 +485,6 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
         let is_notable = is_first || is_last || is_compaction || is_expensive || crossed_new;
         if !is_notable { continue; }
 
-        // Count skipped turns
-        if !timeline_lines.is_empty() && i > 0 {
-            let prev_shown = turns.iter().take(i)
-                .rposition(|_| true) // we need to count from last shown
-                .unwrap_or(0);
-            // Simple: just check gap from line count
-        }
-
         let elapsed = (turn.timestamp - start_time).num_minutes();
         let time_str = format!("{:>3}m", elapsed);
 

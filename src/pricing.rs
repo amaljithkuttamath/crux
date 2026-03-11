@@ -35,20 +35,6 @@ pub fn pricing_for_model(model: &str) -> ModelPricing {
     }
 }
 
-pub fn pricing_with_overrides(model: &str, config: &crate::config::Config) -> ModelPricing {
-    // Check for user overrides first
-    for (pattern, ovr) in &config.model_costs {
-        if model.contains(pattern.as_str()) {
-            return ModelPricing {
-                input_per_m: ovr.input,
-                output_per_m: ovr.output,
-                cache_write_per_m: ovr.cache_write.unwrap_or(ovr.input * 1.25),
-                cache_read_per_m: ovr.cache_read.unwrap_or(ovr.input * 0.1),
-            };
-        }
-    }
-    pricing_for_model(model)
-}
 
 pub fn estimate_cost(
     model: &str,

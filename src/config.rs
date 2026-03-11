@@ -35,6 +35,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct ModelCostOverride {
     pub input: f64,
     pub output: f64,
@@ -104,17 +105,6 @@ impl Config {
         })
     }
 
-    pub fn peak_hour_range(&self) -> Option<(u8, u8)> {
-        let s = self.peak_hours.as_ref()?;
-        let parts: Vec<&str> = s.split('-').collect();
-        if parts.len() == 2 {
-            let start = parts[0].parse::<u8>().ok()?;
-            let end = parts[1].parse::<u8>().ok()?;
-            Some((start, end))
-        } else {
-            None
-        }
-    }
 }
 
 fn config_path() -> PathBuf {

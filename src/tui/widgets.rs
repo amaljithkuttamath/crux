@@ -32,15 +32,6 @@ pub fn format_ago(time: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-/// Custom progress bar using block characters for a cleaner look
-pub fn progress_bar(pct: f64, width: usize) -> (String, String) {
-    let filled = ((pct / 100.0) * width as f64).round() as usize;
-    let empty = width.saturating_sub(filled);
-    let bar_filled: String = "━".repeat(filled);
-    let bar_empty: String = "─".repeat(empty);
-    (bar_filled, bar_empty)
-}
-
 /// Horizontal bar for trends, returns owned Line
 pub fn trend_bar(label: &str, date_str: &str, value: u64, max_value: u64, width: u16) -> Line<'static> {
     let bar_width = width as usize;
