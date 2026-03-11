@@ -460,18 +460,39 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
 
     frame.render_widget(Paragraph::new(divider(w)), chunks[1]);
 
-    // ── Context Timeline ──
-    let max_rows = chunks[2].height as usize;
+    // ── Context Timeline (notable events only) ──
     let turns = &detail.timeline.turns;
     let bar_w = (w as usize).saturating_sub(40).max(10);
-
-    // Build timeline lines: show all turns as context fill bars
-    // but collapse runs of similar context size into one line
-    let mut timeline_lines: Vec<Line> = Vec::new();
-
     let start_time = turns.first().map(|t| t.timestamp).unwrap_or_else(chrono::Utc::now);
 
-    for turn in turns {
+    // Only show turns where something notable happened:
+    // first, last, threshold crossings (25/50/75/85%), compactions, expensive turns
+    let thresholds = [25.0, 50.0, 75.0, 85.0];
+    let mut last_crossed: Option<usize> = None; // index of last threshold crossed
+    let mut timeline_lines: Vec<Line> = Vec::new();
+
+    for (i, turn) in turns.iter().enumerate() {
+        let is_first = i == 0;
+        let is_last = i == turns.len() - 1;
+        let is_compaction = turn.is_compaction;
+        let is_expensive = turn.cost > 0.50;
+
+        // Check if we crossed a new threshold
+        let current_threshold = thresholds.iter().rposition(|&t| turn.context_pct >= t);
+        let crossed_new = current_threshold != last_crossed;
+        if crossed_new { last_crossed = current_threshold; }
+
+        let is_notable = is_first || is_last || is_compaction || is_expensive || crossed_new;
+        if !is_notable { continue; }
+
+        // Count skipped turns
+        if !timeline_lines.is_empty() && i > 0 {
+            let prev_shown = turns.iter().take(i)
+                .rposition(|_| true) // we need to count from last shown
+                .unwrap_or(0);
+            // Simple: just check gap from line count
+        }
+
         let elapsed = (turn.timestamp - start_time).num_minutes();
         let time_str = format!("{:>3}m", elapsed);
 
@@ -483,7 +504,27 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
             else if turn.context_pct > 60.0 { YELLOW }
             else { Color::Rgb(120, 190, 120) };
 
-        let mut spans = vec![
+        let event_label = if is_first {
+            "started"
+        } else if is_compaction {
+            "\u{2193} compacted"
+        } else if is_last {
+            "current"
+        } else if turn.context_pct > 85.0 {
+            "\u{26a0} near limit"
+        } else if is_expensive {
+            "cost spike"
+        } else {
+            "" // threshold crossing, bar speaks for itself
+        };
+
+        let event_color = if is_compaction { YELLOW }
+            else if turn.context_pct > 85.0 { RED }
+            else if is_expensive { YELLOW }
+            else if is_last { ACCENT }
+            else { FG_FAINT };
+
+        timeline_lines.push(Line::from(vec![
             Span::styled(format!("   {} ", time_str), Style::default().fg(FG_FAINT)),
             Span::styled(bar_filled, Style::default().fg(bar_color)),
             Span::styled(bar_empty, Style::default().fg(FG_FAINT)),
@@ -495,40 +536,36 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
                 format!("  {}", compact(turn.context_size)),
                 Style::default().fg(FG_FAINT),
             ),
-        ];
-
-        // Notable events
-        if turn.is_compaction {
-            spans.push(Span::styled("  \u{2193} compacted", Style::default().fg(YELLOW).bold()));
-        } else if turn.context_pct > 85.0 {
-            spans.push(Span::styled("  \u{26a0} near limit", Style::default().fg(RED)));
-        } else if turn.cost > 0.50 {
-            spans.push(Span::styled(
-                format!("  {} expensive turn", pricing::format_cost(turn.cost)),
-                Style::default().fg(YELLOW),
-            ));
-        }
-
-        timeline_lines.push(Line::from(spans));
+            if !event_label.is_empty() {
+                Span::styled(format!("  {}", event_label), Style::default().fg(event_color))
+            } else {
+                Span::raw("")
+            },
+        ]));
     }
 
-    // Scroll
-    let max_scroll = timeline_lines.len().saturating_sub(max_rows);
-    let scroll = detail.scroll.min(max_scroll);
+    // Summary line at bottom
+    let total_turns = turns.len();
+    let shown = timeline_lines.len();
+    if total_turns > shown {
+        timeline_lines.push(Line::from(vec![
+            Span::styled(
+                format!("   {} turns total, {} shown", total_turns, shown),
+                Style::default().fg(FG_FAINT),
+            ),
+        ]));
+    }
 
-    let visible: Vec<Line> = timeline_lines.into_iter().skip(scroll).take(max_rows).collect();
-    frame.render_widget(Paragraph::new(visible), chunks[2]);
+    frame.render_widget(Paragraph::new(timeline_lines), chunks[2]);
 
     frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
     // ── Help ──
-    let turn_count = turns.len();
     let help = Line::from(vec![
-        Span::styled("   \u{2191}\u{2193}", Style::default().fg(ACCENT)),
-        Span::styled(" scroll  ", Style::default().fg(FG_MUTED)),
-        Span::styled("esc", Style::default().fg(ACCENT)),
+        Span::styled("   esc", Style::default().fg(ACCENT)),
         Span::styled(" back   ", Style::default().fg(FG_MUTED)),
-        Span::styled(format!("{} turns", turn_count), Style::default().fg(FG_FAINT)),
+        Span::styled("q", Style::default().fg(ACCENT)),
+        Span::styled(" quit", Style::default().fg(FG_MUTED)),
     ]);
     frame.render_widget(Paragraph::new(help), chunks[4]);
 }
