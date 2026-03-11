@@ -1,27 +1,18 @@
 use ratatui::prelude::*;
-use ratatui::widgets::*;
 
-pub const ACCENT: Color = Color::Rgb(184, 122, 80);
-pub const MUTED: Color = Color::DarkGray;
-pub const DIM: Color = Color::Rgb(80, 80, 80);
-
-pub fn rolling_window_bar<'a>(percentage: f64, label: &'a str) -> Gauge<'a> {
-    let color = if percentage > 90.0 {
-        Color::Red
-    } else if percentage > 70.0 {
-        Color::Yellow
-    } else {
-        ACCENT
-    };
-
-    Gauge::default()
-        .gauge_style(Style::default().fg(color).bg(DIM))
-        .percent(percentage.min(100.0) as u16)
-        .label(Span::styled(label, Style::default().fg(Color::White)))
-}
+// Warm palette, high contrast
+pub const ACCENT: Color = Color::Rgb(210, 140, 90);    // bright copper
+pub const ACCENT_DIM: Color = Color::Rgb(160, 110, 70); // soft copper
+pub const FG: Color = Color::Rgb(235, 230, 224);        // warm white
+pub const FG_MUTED: Color = Color::Rgb(170, 164, 155);  // readable gray
+pub const FG_FAINT: Color = Color::Rgb(110, 105, 98);   // subtle but visible
+pub const YELLOW: Color = Color::Rgb(230, 190, 90);      // warning
+pub const RED: Color = Color::Rgb(220, 100, 90);          // critical
 
 pub fn compact(n: u64) -> String {
-    if n >= 1_000_000 {
+    if n >= 1_000_000_000 {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1_000_000.0)
     } else if n >= 1_000 {
         format!("{:.1}K", n as f64 / 1_000.0)
@@ -41,19 +32,38 @@ pub fn format_ago(time: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-pub fn bar_chart_row(label: &str, value: u64, max_value: u64, width: u16) -> Line<'static> {
-    let bar_width = if max_value > 0 {
-        ((value as f64 / max_value as f64) * width as f64) as usize
+/// Custom progress bar using block characters for a cleaner look
+pub fn progress_bar(pct: f64, width: usize) -> (String, String) {
+    let filled = ((pct / 100.0) * width as f64).round() as usize;
+    let empty = width.saturating_sub(filled);
+    let bar_filled: String = "━".repeat(filled);
+    let bar_empty: String = "─".repeat(empty);
+    (bar_filled, bar_empty)
+}
+
+/// Horizontal bar for trends, returns owned Line
+pub fn trend_bar(label: &str, date_str: &str, value: u64, max_value: u64, width: u16) -> Line<'static> {
+    let bar_width = width as usize;
+    let filled = if max_value > 0 {
+        ((value as f64 / max_value as f64) * bar_width as f64).round() as usize
     } else {
         0
     };
-    let bar: String = "━".repeat(bar_width);
-    let empty: String = " ".repeat(width as usize - bar_width);
+    let bar: String = "█".repeat(filled);
+    let empty: String = "░".repeat(bar_width.saturating_sub(filled));
 
     Line::from(vec![
-        Span::styled(format!("  {:<6}", label), Style::default().fg(Color::White)),
+        Span::styled(format!("    {:<4}", label), Style::default().fg(FG_MUTED)),
+        Span::styled(format!("{:<12}", date_str), Style::default().fg(FG_MUTED)),
         Span::styled(bar, Style::default().fg(ACCENT)),
-        Span::styled(empty, Style::default()),
-        Span::styled(format!(" {}", compact(value)), Style::default().fg(MUTED)),
+        Span::styled(empty, Style::default().fg(FG_FAINT)),
+        Span::styled(format!("  {}", compact(value)), Style::default().fg(FG_MUTED)),
     ])
 }
+
+/// Section divider line
+pub fn divider(width: u16) -> Line<'static> {
+    let line: String = "─".repeat(width.saturating_sub(6) as usize);
+    Line::from(Span::styled(format!("   {}", line), Style::default().fg(FG_FAINT)))
+}
+

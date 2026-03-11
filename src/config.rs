@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
@@ -9,6 +10,38 @@ pub struct Config {
     pub data_path: String,
     pub accent_color: String,
     pub compact_numbers: bool,
+
+    // Budgets
+    pub budget_daily: Option<f64>,
+    pub budget_weekly: Option<f64>,
+
+    // Thresholds
+    pub rot_threshold: f64,
+    pub cache_alert_ratio: f64,
+
+    // Filters
+    pub exclude_projects: Vec<String>,
+    pub sort_projects_by: String,
+
+    // Display
+    pub sparkline_days: usize,
+    pub peak_hours: Option<String>,   // e.g. "09-17"
+
+    // Custom pricing overrides (per 1M tokens)
+    pub model_costs: HashMap<String, ModelCostOverride>,
+
+    // Additional watch paths
+    pub watch_paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ModelCostOverride {
+    pub input: f64,
+    pub output: f64,
+    #[serde(default)]
+    pub cache_write: Option<f64>,
+    #[serde(default)]
+    pub cache_read: Option<f64>,
 }
 
 impl Default for Config {
@@ -19,6 +52,16 @@ impl Default for Config {
             data_path: "~/.claude/projects".to_string(),
             accent_color: "copper".to_string(),
             compact_numbers: true,
+            budget_daily: None,
+            budget_weekly: None,
+            rot_threshold: 5.0,
+            cache_alert_ratio: 0.3,
+            exclude_projects: Vec::new(),
+            sort_projects_by: "recent".to_string(),
+            sparkline_days: 7,
+            peak_hours: None,
+            model_costs: HashMap::new(),
+            watch_paths: Vec::new(),
         }
     }
 }
@@ -39,12 +82,38 @@ impl Config {
         PathBuf::from(expanded)
     }
 
+    pub fn all_data_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![self.data_dir()];
+        for p in &self.watch_paths {
+            dirs.push(PathBuf::from(shellexpand(p)));
+        }
+        dirs
+    }
+
     pub fn rolling_window_duration(&self) -> chrono::Duration {
         parse_duration(&self.rolling_window).unwrap_or(chrono::Duration::hours(5))
     }
 
     pub fn refresh_interval_duration(&self) -> std::time::Duration {
         parse_std_duration(&self.refresh_interval).unwrap_or(std::time::Duration::from_secs(2))
+    }
+
+    pub fn is_excluded(&self, project: &str) -> bool {
+        self.exclude_projects.iter().any(|e| {
+            project.eq_ignore_ascii_case(e) || project.contains(e.as_str())
+        })
+    }
+
+    pub fn peak_hour_range(&self) -> Option<(u8, u8)> {
+        let s = self.peak_hours.as_ref()?;
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() == 2 {
+            let start = parts[0].parse::<u8>().ok()?;
+            let end = parts[1].parse::<u8>().ok()?;
+            Some((start, end))
+        } else {
+            None
+        }
     }
 }
 
@@ -70,6 +139,8 @@ fn parse_duration(s: &str) -> Option<chrono::Duration> {
         h.parse::<i64>().ok().map(chrono::Duration::hours)
     } else if let Some(m) = s.strip_suffix('m') {
         m.parse::<i64>().ok().map(chrono::Duration::minutes)
+    } else if let Some(d) = s.strip_suffix('d') {
+        d.parse::<i64>().ok().map(chrono::Duration::days)
     } else {
         None
     }

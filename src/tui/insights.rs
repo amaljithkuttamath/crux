@@ -1,0 +1,252 @@
+use crate::config::Config;
+use crate::pricing;
+use crate::store::Store;
+use super::widgets::*;
+use ratatui::prelude::*;
+use ratatui::widgets::*;
+
+pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
+    let area = frame.area();
+    let w = area.width;
+    let insights = store.insights_with_days(config.sparkline_days);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(2),   // title + sparkline
+            Constraint::Length(6),   // unit economics
+            Constraint::Length(1),   // divider
+            Constraint::Length(4),   // model ROI
+            Constraint::Length(1),   // divider
+            Constraint::Min(4),     // costliest sessions
+            Constraint::Length(1),   // divider
+            Constraint::Length(1),   // help
+        ])
+        .split(area);
+
+    // ── Title ──
+    let sparkline_str = spark(&insights.daily_costs);
+    let total_7d: f64 = insights.daily_costs.iter().sum();
+    let title = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("   insights", Style::default().fg(ACCENT).bold()),
+            Span::styled(
+                format!("{}{}d spend  {}  {}",
+                    " ".repeat((w as usize).saturating_sub(55)),
+                    config.sparkline_days,
+                    sparkline_str,
+                    pricing::format_cost(total_7d),
+                ),
+                Style::default().fg(FG_MUTED),
+            ),
+        ]),
+    ]);
+    frame.render_widget(title, chunks[0]);
+
+    // ── Unit economics ──
+    let all = store.all_time();
+    let cache_denom = all.cache_read_tokens + all.input_tokens;
+    let cache_hit = if cache_denom > 0 { all.cache_read_tokens as f64 / cache_denom as f64 } else { 0.0 };
+    let out_in = if all.input_tokens > 0 { all.output_tokens as f64 / all.input_tokens as f64 } else { 0.0 };
+    let cost_per_out_1k = if all.output_tokens > 0 { all.cost / (all.output_tokens as f64 / 1000.0) } else { 0.0 };
+    let cost_per_session = insights.avg_cost_per_session;
+
+    // Waste: tokens in that produced < 10 tokens out in same request
+    // (approximated by looking at sessions with very low output ratio)
+    let low_output_sessions = insights.sessions.iter()
+        .filter(|s| s.total_input > 0 && (s.total_output as f64 / s.total_input as f64) < 0.05)
+        .count();
+    let waste_pct = if !insights.sessions.is_empty() {
+        low_output_sessions as f64 / insights.sessions.len() as f64 * 100.0
+    } else { 0.0 };
+
+    let cache_color = grade_color(cache_hit, config.cache_alert_ratio, config.cache_alert_ratio * 2.0);
+    let waste_color = grade_color_inverse(waste_pct, 15.0, 30.0);
+    let trend_color = grade_color_inverse(insights.cost_trend, 1.3, 1.8);
+
+    let trend_arrow = if insights.cost_trend > 1.1 { "^" } else if insights.cost_trend < 0.9 { "v" } else { "=" };
+
+    let econ = vec![
+        Line::from(vec![
+            Span::styled("   cost/1K output    ", Style::default().fg(FG_MUTED)),
+            Span::styled(pricing::format_cost(cost_per_out_1k), Style::default().fg(ACCENT).bold()),
+            Span::styled("      cache hit rate      ", Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:.0}%", cache_hit * 100.0), Style::default().fg(cache_color).bold()),
+            Span::styled(
+                if cache_hit > 0.6 { "  strong" } else if cache_hit > 0.3 { "  fair" } else { "  low" },
+                Style::default().fg(cache_color),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   cost/session      ", Style::default().fg(FG_MUTED)),
+            Span::styled(pricing::format_cost(cost_per_session), Style::default().fg(FG).bold()),
+            Span::styled("      output/input ratio  ", Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:.2}x", out_in), Style::default().fg(FG)),
+        ]),
+        Line::from(vec![
+            Span::styled("   cost trend        ", Style::default().fg(FG_MUTED)),
+            Span::styled(
+                format!("{} {:.0}% vs avg", trend_arrow, (insights.cost_trend - 1.0).abs() * 100.0),
+                Style::default().fg(trend_color).bold(),
+            ),
+            Span::styled("      low-output sessions ", Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:.0}%", waste_pct), Style::default().fg(waste_color).bold()),
+            Span::styled(
+                if waste_pct > 30.0 { "  high waste" } else if waste_pct > 15.0 { "  some waste" } else { "" },
+                Style::default().fg(waste_color),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   avg depth         ", Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:.1} msgs/session", insights.avg_session_depth), Style::default().fg(FG)),
+            Span::styled("      peak hours          ", Style::default().fg(FG_MUTED)),
+            Span::styled(
+                format_peak_hours(&insights.busiest_hours),
+                Style::default().fg(FG),
+            ),
+        ]),
+        Line::from(Span::raw("")),
+        Line::from(vec![
+            Span::styled("   cache waste       ", Style::default().fg(FG_MUTED)),
+            Span::styled(
+                format!("{:.0}%", insights.cache_waste_ratio * 100.0),
+                Style::default().fg(grade_color_inverse(insights.cache_waste_ratio * 100.0, 30.0, 60.0)),
+            ),
+            Span::styled("  writes never read back", Style::default().fg(FG_FAINT)),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(econ), chunks[1]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
+
+    // ── Model ROI ──
+    let mut roi_lines: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled("   model ROI", Style::default().fg(ACCENT)),
+            Span::styled(
+                format!("{}requests    input       output    cost/1Kout   total cost",
+                    " ".repeat((w as usize).saturating_sub(80).max(2))),
+                Style::default().fg(FG_MUTED),
+            ),
+        ]),
+    ];
+
+    let models = store.by_model();
+    for m in models.iter().take(3) {
+        let cpo = if m.output_tokens > 0 { m.cost / (m.output_tokens as f64 / 1000.0) } else { 0.0 };
+
+        roi_lines.push(Line::from(vec![
+            Span::styled(format!("   {:<10}", m.name), Style::default().fg(FG)),
+            Span::styled(
+                format!("{}{:>8}", " ".repeat((w as usize).saturating_sub(80).max(2)), m.record_count),
+                Style::default().fg(FG_MUTED),
+            ),
+            Span::styled(format!("{:>10}", compact(m.input_tokens)), Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:>12}", compact(m.output_tokens)), Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:>12}", pricing::format_cost(cpo)), Style::default().fg(FG)),
+            Span::styled(format!("{:>12}", pricing::format_cost(m.cost)), Style::default().fg(ACCENT)),
+        ]));
+    }
+
+    frame.render_widget(Paragraph::new(roi_lines), chunks[3]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
+
+    // ── Costliest sessions ──
+    let max_rows = chunks[5].height as usize;
+    let mut session_lines: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled("   costliest sessions", Style::default().fg(ACCENT)),
+            Span::styled(
+                format!("{}model    msgs   out/in   cache%    cost",
+                    " ".repeat((w as usize).saturating_sub(72).max(2))),
+                Style::default().fg(FG_MUTED),
+            ),
+        ]),
+    ];
+
+    for s in insights.sessions.iter().take(max_rows.saturating_sub(1)) {
+        let ratio = if s.total_input > 0 { s.total_output as f64 / s.total_input as f64 } else { 0.0 };
+        let ratio_color = if ratio > 0.3 { Color::Rgb(120, 190, 120) } else if ratio > 0.1 { FG_MUTED } else { YELLOW };
+
+        let cache_total = s.total_cache_read + s.total_input;
+        let cache_pct = if cache_total > 0 { s.total_cache_read as f64 / cache_total as f64 * 100.0 } else { 0.0 };
+        let cache_color = grade_color(cache_pct / 100.0, config.cache_alert_ratio, config.cache_alert_ratio * 2.0);
+
+        let name_w = (w as usize).saturating_sub(65).max(10);
+        session_lines.push(Line::from(vec![
+            Span::styled(
+                format!("   {:<width$}", truncate(&s.project, name_w), width = name_w),
+                Style::default().fg(FG),
+            ),
+            Span::styled(format!("{:>8}", s.model), Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:>7}", s.message_count), Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:>8.2}x", ratio), Style::default().fg(ratio_color)),
+            Span::styled(format!("{:>8.0}%", cache_pct), Style::default().fg(cache_color)),
+            Span::styled(format!("{:>9}", pricing::format_cost(s.cost)), Style::default().fg(ACCENT)),
+        ]));
+    }
+
+    frame.render_widget(Paragraph::new(session_lines), chunks[5]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[6]);
+
+    // ── Help ──
+    let help = Line::from(vec![
+        Span::styled("   esc", Style::default().fg(ACCENT)),
+        Span::styled(" back   ", Style::default().fg(FG_MUTED)),
+        Span::styled("q", Style::default().fg(ACCENT)),
+        Span::styled(" quit", Style::default().fg(FG_MUTED)),
+    ]);
+    frame.render_widget(Paragraph::new(help), chunks[7]);
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() > max {
+        format!("{}...", &s[..max.saturating_sub(3)])
+    } else {
+        s.to_string()
+    }
+}
+
+fn spark(values: &[f64]) -> String {
+    let blocks = ['_', '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
+    let max = values.iter().cloned().fold(0.0f64, f64::max);
+    if max <= 0.0 {
+        return "_".repeat(values.len());
+    }
+    values.iter().map(|v| {
+        let idx = ((v / max) * 8.0).round() as usize;
+        blocks[idx.min(8)]
+    }).collect()
+}
+
+fn format_peak_hours(hours: &[(u8, u64)]) -> String {
+    if hours.is_empty() {
+        return "--".to_string();
+    }
+    hours.iter().take(2)
+        .map(|(h, _)| format!("{:02}:00", h))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Green for good (higher is better)
+fn grade_color(value: f64, low: f64, high: f64) -> Color {
+    if value >= high {
+        Color::Rgb(120, 190, 120)
+    } else if value >= low {
+        YELLOW
+    } else {
+        RED
+    }
+}
+
+/// Red for bad (higher is worse)
+fn grade_color_inverse(value: f64, warn: f64, crit: f64) -> Color {
+    if value >= crit {
+        RED
+    } else if value >= warn {
+        YELLOW
+    } else {
+        Color::Rgb(120, 190, 120)
+    }
+}

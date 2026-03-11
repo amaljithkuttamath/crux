@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 mod cli;
 mod config;
 mod parser;
+mod pricing;
 mod store;
 mod tui;
 
@@ -53,21 +54,24 @@ fn main() -> anyhow::Result<()> {
 
 fn load_store(config: &Config) -> anyhow::Result<Store> {
     let mut store = Store::new();
-    let data_dir = config.data_dir();
-    if !data_dir.exists() {
-        return Ok(store);
-    }
-    for project_dir in std::fs::read_dir(&data_dir)? {
-        let project_dir = project_dir?.path();
-        if !project_dir.is_dir() {
+    for data_dir in config.all_data_dirs() {
+        if !data_dir.exists() {
             continue;
         }
-        for entry in std::fs::read_dir(&project_dir)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                if let Ok(records) = parser::parse_file(path.to_str().unwrap_or_default()) {
-                    for r in records {
-                        store.add(r);
+        for project_dir in std::fs::read_dir(&data_dir)? {
+            let project_dir = project_dir?.path();
+            if !project_dir.is_dir() {
+                continue;
+            }
+            for entry in std::fs::read_dir(&project_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                    if let Ok(records) = parser::parse_file(path.to_str().unwrap_or_default()) {
+                        for r in records {
+                            if !config.is_excluded(&r.project) {
+                                store.add(r);
+                            }
+                        }
                     }
                 }
             }

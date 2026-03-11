@@ -1,6 +1,8 @@
 pub mod dashboard;
 pub mod daily;
 pub mod trends;
+pub mod models;
+pub mod insights;
 pub mod widgets;
 
 use crate::config::Config;
@@ -15,6 +17,8 @@ pub enum View {
     Dashboard,
     Daily,
     Trends,
+    Models,
+    Insights,
 }
 
 pub struct App {
@@ -50,6 +54,8 @@ impl App {
                             KeyCode::Char('q') => self.should_quit = true,
                             KeyCode::Char('d') => self.view = View::Daily,
                             KeyCode::Char('t') => self.view = View::Trends,
+                            KeyCode::Char('m') => self.view = View::Models,
+                            KeyCode::Char('i') => self.view = View::Insights,
                             KeyCode::Esc => self.view = View::Dashboard,
                             _ => {}
                         }
@@ -69,6 +75,8 @@ impl App {
             View::Dashboard => dashboard::render(frame, &self.store, &self.config),
             View::Daily => daily::render(frame, &self.store, &self.config),
             View::Trends => trends::render(frame, &self.store, &self.config),
+            View::Models => models::render(frame, &self.store, &self.config),
+            View::Insights => insights::render(frame, &self.store, &self.config),
         }
     }
 
