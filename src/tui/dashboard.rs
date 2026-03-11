@@ -5,7 +5,7 @@ use super::widgets::*;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
+pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, scroll: usize) {
     let area = frame.area();
     let w = area.width;
 
@@ -208,7 +208,8 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
     let projects = store.by_project();
     let max_rows = chunks[8].height as usize;
     let mut project_lines: Vec<Line> = Vec::new();
-    for p in projects.iter().take(max_rows) {
+    let proj_scroll = scroll.min(projects.len().saturating_sub(max_rows));
+    for p in projects.iter().skip(proj_scroll).take(max_rows) {
         let total = p.input_tokens + p.output_tokens + p.cache_creation_tokens + p.cache_read_tokens;
         let name_w = (w as usize).saturating_sub(55).max(12);
         project_lines.push(Line::from(vec![
@@ -222,23 +223,39 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
             Span::styled(format!("    {:>8}", format_ago(p.last_used)), Style::default().fg(FG_MUTED)),
         ]));
     }
+    // Scroll indicator for projects
+    if projects.len() > max_rows {
+        let remaining = projects.len().saturating_sub(proj_scroll + max_rows);
+        if remaining > 0 {
+            if let Some(last) = project_lines.last_mut() {
+                *last = Line::from(vec![
+                    Span::styled(
+                        format!("   ... {} more (use \u{2191}\u{2193} to scroll)", remaining),
+                        Style::default().fg(FG_FAINT),
+                    ),
+                ]);
+            }
+        }
+    }
     frame.render_widget(Paragraph::new(project_lines), chunks[8]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[9]);
 
     // ── Help bar ──
     let help = Line::from(vec![
-        Span::styled("   q", Style::default().fg(ACCENT)),
-        Span::styled(" quit   ", Style::default().fg(FG_MUTED)),
+        Span::styled("   \u{2191}\u{2193}", Style::default().fg(ACCENT)),
+        Span::styled(" scroll   ", Style::default().fg(FG_MUTED)),
         Span::styled("d", Style::default().fg(ACCENT)),
-        Span::styled(" daily   ", Style::default().fg(FG_MUTED)),
+        Span::styled(" daily  ", Style::default().fg(FG_MUTED)),
         Span::styled("t", Style::default().fg(ACCENT)),
-        Span::styled(" trends   ", Style::default().fg(FG_MUTED)),
+        Span::styled(" trends  ", Style::default().fg(FG_MUTED)),
         Span::styled("m", Style::default().fg(ACCENT)),
-        Span::styled(" models   ", Style::default().fg(FG_MUTED)),
+        Span::styled(" models  ", Style::default().fg(FG_MUTED)),
         Span::styled("i", Style::default().fg(ACCENT)),
-        Span::styled(" insights   ", Style::default().fg(FG_MUTED)),
+        Span::styled(" insights  ", Style::default().fg(FG_MUTED)),
         Span::styled("s", Style::default().fg(ACCENT)),
-        Span::styled(" sessions", Style::default().fg(FG_MUTED)),
+        Span::styled(" sessions  ", Style::default().fg(FG_MUTED)),
+        Span::styled("q", Style::default().fg(ACCENT)),
+        Span::styled(" quit", Style::default().fg(FG_MUTED)),
     ]);
     frame.render_widget(Paragraph::new(help), chunks[10]);
 }

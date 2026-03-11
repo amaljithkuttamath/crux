@@ -29,6 +29,7 @@ pub struct App {
     pub view: View,
     pub should_quit: bool,
     pub sessions_state: sessions::SessionsState,
+    pub scroll: usize,  // generic scroll offset for current view
     watcher_rx: Option<mpsc::Receiver<Vec<String>>>,
 }
 
@@ -41,6 +42,7 @@ impl App {
             view: View::Dashboard,
             should_quit: false,
             sessions_state: sessions::SessionsState::new(),
+            scroll: 0,
             watcher_rx,
         }
     }
@@ -88,15 +90,21 @@ impl App {
             _ => {
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Char('d') => self.view = View::Daily,
-                    KeyCode::Char('t') => self.view = View::Trends,
-                    KeyCode::Char('m') => self.view = View::Models,
-                    KeyCode::Char('i') => self.view = View::Insights,
+                    KeyCode::Char('d') => { self.scroll = 0; self.view = View::Daily; }
+                    KeyCode::Char('t') => { self.scroll = 0; self.view = View::Trends; }
+                    KeyCode::Char('m') => { self.scroll = 0; self.view = View::Models; }
+                    KeyCode::Char('i') => { self.scroll = 0; self.view = View::Insights; }
                     KeyCode::Char('s') => {
                         self.sessions_state = sessions::SessionsState::new();
                         self.view = View::Sessions;
                     }
-                    KeyCode::Esc => self.view = View::Dashboard,
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.scroll = self.scroll.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.scroll += 1;
+                    }
+                    KeyCode::Esc => { self.scroll = 0; self.view = View::Dashboard; }
                     _ => {}
                 }
             }
@@ -105,7 +113,7 @@ impl App {
 
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
-            View::Dashboard => dashboard::render(frame, &self.store, &self.config),
+            View::Dashboard => dashboard::render(frame, &self.store, &self.config, self.scroll),
             View::Daily => daily::render(frame, &self.store, &self.config),
             View::Trends => trends::render(frame, &self.store, &self.config),
             View::Models => models::render(frame, &self.store, &self.config),
