@@ -347,6 +347,7 @@ impl Store {
         agg.cost / hours
     }
 
+    #[allow(dead_code)]
     pub fn insights_with_days(&self, sparkline_days: usize) -> InsightsData {
         let all = self.all_time();
 
@@ -742,6 +743,7 @@ impl Store {
     }
 
     /// Token volume per hour of day (0-23), aggregated across all time
+    #[allow(dead_code)]
     pub fn by_hour_all(&self) -> [u64; 24] {
         let mut hours = [0u64; 24];
         for r in &self.records {

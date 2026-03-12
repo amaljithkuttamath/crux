@@ -433,8 +433,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         ("\u{2191}\u{2193}", "navigate"),
         ("tab", "switch"),
         ("enter", "detail"),
-        ("d", "daily"),
-        ("t", "trends"),
+        ("h", "history"),
         ("s", "sessions"),
         ("q", "quit"),
     ]);

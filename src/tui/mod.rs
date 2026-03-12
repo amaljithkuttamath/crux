@@ -1,8 +1,5 @@
 pub mod dashboard;
-pub mod daily;
-pub mod trends;
-pub mod models;
-pub mod insights;
+pub mod history;
 pub mod sessions;
 pub mod widgets;
 
@@ -16,10 +13,7 @@ use std::sync::mpsc;
 #[derive(PartialEq)]
 pub enum View {
     Dashboard,
-    Daily,
-    Trends,
-    Models,
-    Insights,
+    History,
     Sessions,
 }
 
@@ -30,7 +24,7 @@ pub struct App {
     pub should_quit: bool,
     pub dashboard_state: dashboard::DashboardState,
     pub sessions_state: sessions::SessionsState,
-    pub scroll: usize,  // generic scroll offset for non-dashboard views
+    pub scroll: usize,
     watcher_rx: Option<mpsc::Receiver<Vec<String>>>,
 }
 
@@ -92,20 +86,11 @@ impl App {
                     }
                     KeyCode::Esc => {
                         if !self.dashboard_state.back() {
-                            // already at top level, do nothing
+                            // already at top level
                         }
                     }
-                    KeyCode::Char('d') if self.dashboard_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::Daily;
-                    }
-                    KeyCode::Char('t') if self.dashboard_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::Trends;
-                    }
-                    KeyCode::Char('m') if self.dashboard_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::Models;
-                    }
-                    KeyCode::Char('i') if self.dashboard_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::Insights;
+                    KeyCode::Char('h') if self.dashboard_state.detail.is_none() => {
+                        self.scroll = 0; self.view = View::History;
                     }
                     KeyCode::Char('s') if self.dashboard_state.detail.is_none() => {
                         self.sessions_state = sessions::SessionsState::default();
@@ -128,20 +113,15 @@ impl App {
                             self.view = View::Dashboard;
                         }
                     }
+                    KeyCode::Char('h') if self.sessions_state.detail.is_none() => {
+                        self.scroll = 0; self.view = View::History;
+                    }
                     _ => {}
                 }
             }
-            _ => {
+            View::History => {
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Char('d') => { self.scroll = 0; self.view = View::Daily; }
-                    KeyCode::Char('t') => { self.scroll = 0; self.view = View::Trends; }
-                    KeyCode::Char('m') => { self.scroll = 0; self.view = View::Models; }
-                    KeyCode::Char('i') => { self.scroll = 0; self.view = View::Insights; }
-                    KeyCode::Char('s') => {
-                        self.sessions_state = sessions::SessionsState::default();
-                        self.view = View::Sessions;
-                    }
                     KeyCode::Up | KeyCode::Char('k') => {
                         self.scroll = self.scroll.saturating_sub(1);
                     }
@@ -149,6 +129,10 @@ impl App {
                         self.scroll += 1;
                     }
                     KeyCode::Esc => { self.scroll = 0; self.view = View::Dashboard; }
+                    KeyCode::Char('s') => {
+                        self.sessions_state = sessions::SessionsState::default();
+                        self.view = View::Sessions;
+                    }
                     _ => {}
                 }
             }
@@ -158,10 +142,7 @@ impl App {
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
             View::Dashboard => dashboard::render(frame, &self.store, &self.config, &mut self.dashboard_state),
-            View::Daily => daily::render(frame, &self.store, &self.config, self.scroll),
-            View::Trends => trends::render(frame, &self.store, &self.config),
-            View::Models => models::render(frame, &self.store, &self.config),
-            View::Insights => insights::render(frame, &self.store, &self.config),
+            View::History => history::render(frame, &self.store, &self.config, self.scroll),
             View::Sessions => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state),
         }
     }

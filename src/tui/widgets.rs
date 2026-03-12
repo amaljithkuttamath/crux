@@ -2,29 +2,11 @@ use ratatui::prelude::*;
 
 // Warm palette, high contrast
 pub const ACCENT: Color = Color::Rgb(210, 140, 90);    // bright copper
-pub const ACCENT_DIM: Color = Color::Rgb(160, 110, 70); // soft copper
 pub const FG: Color = Color::Rgb(235, 230, 224);        // warm white
 pub const FG_MUTED: Color = Color::Rgb(170, 164, 155);  // readable gray
 pub const FG_FAINT: Color = Color::Rgb(110, 105, 98);   // subtle but visible
 pub const YELLOW: Color = Color::Rgb(230, 190, 90);      // warning
 pub const RED: Color = Color::Rgb(220, 100, 90);          // critical
-
-pub enum LayoutMode {
-    Compact,
-    Standard,
-    Wide,
-}
-
-impl LayoutMode {
-    pub fn from_width(w: u16) -> Self {
-        match w {
-            0..=99 => Self::Compact,
-            100..=139 => Self::Standard,
-            _ => Self::Wide,
-        }
-    }
-
-}
 
 pub fn compact(n: u64) -> String {
     if n >= 1_000_000_000 {
@@ -49,29 +31,9 @@ pub fn format_ago(time: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-/// Horizontal bar for trends, returns owned Line
-pub fn trend_bar(label: &str, date_str: &str, value: u64, max_value: u64, width: u16) -> Line<'static> {
-    let bar_width = width as usize;
-    let filled = if max_value > 0 {
-        ((value as f64 / max_value as f64) * bar_width as f64).round() as usize
-    } else {
-        0
-    };
-    let bar: String = "█".repeat(filled);
-    let empty: String = "░".repeat(bar_width.saturating_sub(filled));
-
-    Line::from(vec![
-        Span::styled(format!("    {:<4}", label), Style::default().fg(FG_MUTED)),
-        Span::styled(format!("{:<12}", date_str), Style::default().fg(FG_MUTED)),
-        Span::styled(bar, Style::default().fg(ACCENT)),
-        Span::styled(empty, Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {}", compact(value)), Style::default().fg(FG_MUTED)),
-    ])
-}
-
 /// Section divider line
 pub fn divider(width: u16) -> Line<'static> {
-    let line: String = "─".repeat(width.saturating_sub(6) as usize);
+    let line: String = "\u{2500}".repeat(width.saturating_sub(6) as usize);
     Line::from(Span::styled(format!("   {}", line), Style::default().fg(FG_FAINT)))
 }
 
@@ -112,28 +74,6 @@ pub fn smooth_bar(value: f64, max: f64, width: usize) -> (String, String) {
     (filled, empty)
 }
 
-/// Green for good (higher is better)
-pub fn grade_color(value: f64, low: f64, high: f64) -> Color {
-    if value >= high {
-        Color::Rgb(120, 190, 120)
-    } else if value >= low {
-        YELLOW
-    } else {
-        RED
-    }
-}
-
-/// Red for bad (higher is worse)
-pub fn grade_color_inverse(value: f64, warn: f64, crit: f64) -> Color {
-    if value >= crit {
-        RED
-    } else if value >= warn {
-        YELLOW
-    } else {
-        Color::Rgb(120, 190, 120)
-    }
-}
-
 /// Shared help bar from key-label pairs
 pub fn help_bar(bindings: &[(&str, &str)]) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = vec![Span::styled("   ", Style::default())];
@@ -143,4 +83,3 @@ pub fn help_bar(bindings: &[(&str, &str)]) -> Line<'static> {
     }
     Line::from(spans)
 }
-
