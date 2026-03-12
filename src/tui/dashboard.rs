@@ -5,12 +5,14 @@ use super::widgets::*;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Default)]
 pub enum FocusZone {
+    #[default]
     ActiveSessions,
     Projects,
 }
 
+#[derive(Default)]
 pub struct DashboardState {
     pub focus: FocusZone,
     pub active_cursor: usize,
@@ -26,15 +28,6 @@ pub struct SessionDetailView {
 }
 
 impl DashboardState {
-    pub fn new() -> Self {
-        Self {
-            focus: FocusZone::ActiveSessions,
-            active_cursor: 0,
-            project_cursor: 0,
-            project_scroll: 0,
-            detail: None,
-        }
-    }
 
     pub fn move_up(&mut self) {
         if let Some(ref mut detail) = self.detail {
@@ -493,7 +486,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
                 Span::styled(format!("   {}", meta.project), Style::default().fg(ACCENT)),
                 Span::styled(format!("  {}  {}  {}  ", dur_str, pricing::format_cost(cost), meta.user_count),
                     Style::default().fg(FG_MUTED)),
-                Span::styled(format!("turns  Grade "), Style::default().fg(FG_FAINT)),
+                Span::styled("turns  Grade ".to_string(), Style::default().fg(FG_FAINT)),
                 Span::styled(grade_str.0, Style::default().fg(grade_str.1).bold()),
                 if detail.timeline.compaction_count > 0 {
                     Span::styled(

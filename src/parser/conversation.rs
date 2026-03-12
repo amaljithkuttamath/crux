@@ -76,8 +76,8 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         if let Some(ts_str) = &parsed.timestamp {
             if let Ok(t) = DateTime::parse_from_rfc3339(ts_str) {
                 let t = t.with_timezone(&Utc);
-                if start_time.map_or(true, |s| t < s) { start_time = Some(t); }
-                if end_time.map_or(true, |e| t > e) { end_time = Some(t); }
+                if start_time.is_none_or(|s| t < s) { start_time = Some(t); }
+                if end_time.is_none_or(|e| t > e) { end_time = Some(t); }
             }
         }
 

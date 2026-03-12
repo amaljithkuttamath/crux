@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn load_store(config: &Config) -> anyhow::Result<Store> {
-    let mut store = Store::new();
+    let mut store = Store::default();
     for data_dir in config.all_data_dirs() {
         if !data_dir.exists() {
             continue;

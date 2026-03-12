@@ -42,8 +42,8 @@ impl App {
             config,
             view: View::Dashboard,
             should_quit: false,
-            dashboard_state: dashboard::DashboardState::new(),
-            sessions_state: sessions::SessionsState::new(),
+            dashboard_state: dashboard::DashboardState::default(),
+            sessions_state: sessions::SessionsState::default(),
             scroll: 0,
             watcher_rx,
         }
@@ -108,7 +108,7 @@ impl App {
                         self.scroll = 0; self.view = View::Insights;
                     }
                     KeyCode::Char('s') if self.dashboard_state.detail.is_none() => {
-                        self.sessions_state = sessions::SessionsState::new();
+                        self.sessions_state = sessions::SessionsState::default();
                         self.view = View::Sessions;
                     }
                     _ => {}
@@ -139,7 +139,7 @@ impl App {
                     KeyCode::Char('m') => { self.scroll = 0; self.view = View::Models; }
                     KeyCode::Char('i') => { self.scroll = 0; self.view = View::Insights; }
                     KeyCode::Char('s') => {
-                        self.sessions_state = sessions::SessionsState::new();
+                        self.sessions_state = sessions::SessionsState::default();
                         self.view = View::Sessions;
                     }
                     KeyCode::Up | KeyCode::Char('k') => {

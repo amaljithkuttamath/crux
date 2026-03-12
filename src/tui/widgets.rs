@@ -102,13 +102,12 @@ pub fn smooth_bar(value: f64, max: f64, width: usize) -> (String, String) {
     let partials = [' ', '\u{258F}', '\u{258E}', '\u{258D}', '\u{258C}', '\u{258B}', '\u{258A}', '\u{2589}'];
 
     let mut filled = "\u{2588}".repeat(full_blocks);
-    let empty_start;
-    if remainder > 0 && full_blocks < width {
+    let empty_start = if remainder > 0 && full_blocks < width {
         filled.push(partials[remainder]);
-        empty_start = full_blocks + 1;
+        full_blocks + 1
     } else {
-        empty_start = full_blocks;
-    }
+        full_blocks
+    };
     let empty = "\u{2591}".repeat(width.saturating_sub(empty_start));
     (filled, empty)
 }

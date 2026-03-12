@@ -4,7 +4,7 @@ use crate::pricing;
 use chrono::{Duration, NaiveDate, Timelike, Utc};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Store {
     records: Vec<UsageRecord>,
     session_metas: Vec<SessionMeta>,
@@ -142,12 +142,6 @@ impl Aggregation {
 }
 
 impl Store {
-    pub fn new() -> Self {
-        Self {
-            records: Vec::new(),
-            session_metas: Vec::new(),
-        }
-    }
 
     pub fn add(&mut self, record: UsageRecord) {
         self.records.push(record);
@@ -198,7 +192,7 @@ impl Store {
             .sum()
     }
 
-    fn aggregate_records<'a>(&'a self, filter: impl Fn(&UsageRecord) -> bool) -> Aggregation {
+    fn aggregate_records(&self, filter: impl Fn(&UsageRecord) -> bool) -> Aggregation {
         let mut agg = Aggregation::default();
         let mut sessions = HashSet::new();
         for r in &self.records {

@@ -1,7 +1,6 @@
 /// API-equivalent cost estimates per million tokens
 /// Based on Anthropic's published pricing (as of March 2026)
 /// These are what it WOULD cost on the API, not what the user pays on subscription
-
 pub struct ModelPricing {
     pub input_per_m: f64,
     pub output_per_m: f64,
@@ -51,9 +50,7 @@ pub fn estimate_cost(
 }
 
 pub fn format_cost(cost: f64) -> String {
-    if cost >= 1.0 {
-        format!("${:.2}", cost)
-    } else if cost >= 0.01 {
+    if cost >= 0.01 {
         format!("${:.2}", cost)
     } else {
         format!("${:.3}", cost)

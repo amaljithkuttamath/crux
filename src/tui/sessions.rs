@@ -7,6 +7,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::*;
 use chrono::{Datelike, Utc};
 
+#[derive(Default)]
 pub struct SessionsState {
     pub cursor: usize,
     pub scroll: usize,
@@ -20,14 +21,6 @@ pub struct SessionDetail {
 }
 
 impl SessionsState {
-    pub fn new() -> Self {
-        Self {
-            cursor: 0,
-            scroll: 0,
-            detail: None,
-            detail_scroll: 0,
-        }
-    }
 
     pub fn move_up(&mut self) {
         if self.detail.is_some() {
@@ -299,9 +292,9 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
             };
             stat_lines.push(Line::from(vec![
                 Span::styled("   context  ", Style::default().fg(FG_MUTED)),
-                Span::styled(format!("{}", compact(a.context_initial)), Style::default().fg(FG_FAINT)),
+                Span::styled(compact(a.context_initial), Style::default().fg(FG_FAINT)),
                 Span::styled(" \u{2192} ", Style::default().fg(FG_FAINT)),
-                Span::styled(format!("{}", compact(a.context_current)), Style::default().fg(FG)),
+                Span::styled(compact(a.context_current), Style::default().fg(FG)),
                 Span::styled(format!("  ({:.1}x)", a.context_growth), Style::default().fg(FG_MUTED)),
                 Span::styled(format!("  {} compactions", a.compaction_count), Style::default().fg(FG_FAINT)),
                 Span::styled(format!("  cache {:.0}%", a.cache_hit_rate * 100.0), Style::default().fg(FG_FAINT)),
