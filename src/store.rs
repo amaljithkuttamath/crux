@@ -744,6 +744,16 @@ impl Store {
         }
         result
     }
+
+    /// Token volume per hour of day (0-23), aggregated across all time
+    pub fn by_hour_all(&self) -> [u64; 24] {
+        let mut hours = [0u64; 24];
+        for r in &self.records {
+            let h = r.timestamp.hour() as usize;
+            hours[h] += r.input_tokens + r.output_tokens;
+        }
+        hours
+    }
 }
 
 fn simplify_model(model: &str) -> String {
