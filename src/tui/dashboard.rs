@@ -157,16 +157,19 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         .split(area);
 
     // ── Title ──
-    let cost_rate = store.cost_rate(config.rolling_window_duration());
-    let today_cost = store.today().cost;
+    let today_agg = store.today();
+    let week_agg = store.this_week();
+    let streak = store.streak_days();
+
     let title = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("   usagetracker", Style::default().fg(ACCENT).bold()),
             Span::styled(
-                format!("{}~{}/hr  {} today",
-                    " ".repeat((w as usize).saturating_sub(50)),
-                    pricing::format_cost(cost_rate),
-                    pricing::format_cost(today_cost),
+                format!("{}sessions: {} today / {} this week   streak: {}d",
+                    " ".repeat((w as usize).saturating_sub(65)),
+                    today_agg.session_count,
+                    week_agg.session_count,
+                    streak,
                 ),
                 Style::default().fg(FG_MUTED),
             ),
