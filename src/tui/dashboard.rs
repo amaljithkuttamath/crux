@@ -19,6 +19,8 @@ pub struct DashboardState {
     pub project_cursor: usize,
     pub project_scroll: usize,
     pub detail: Option<SessionDetailView>,
+    /// Cached session IDs from the last render, so enter() indexes the same list.
+    cached_active_ids: Vec<String>,
 }
 
 pub struct SessionDetailView {
@@ -90,11 +92,10 @@ impl DashboardState {
         if self.detail.is_some() { return; }
         if self.focus != FocusZone::ActiveSessions { return; }
 
-        let active = store.active_sessions(24);
-        if let Some((meta, _)) = active.get(self.active_cursor) {
-            if let Some(timeline) = store.session_timeline(&meta.session_id) {
+        if let Some(session_id) = self.cached_active_ids.get(self.active_cursor) {
+            if let Some(timeline) = store.session_timeline(session_id) {
                 self.detail = Some(SessionDetailView {
-                    session_id: meta.session_id.clone(),
+                    session_id: session_id.clone(),
                     timeline,
                     scroll: 0,
                 });
@@ -112,7 +113,7 @@ impl DashboardState {
     }
 }
 
-pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &DashboardState) {
+pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut DashboardState) {
     if state.detail.is_some() {
         render_detail(frame, store, config, state);
     } else {
@@ -120,12 +121,15 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state:
     }
 }
 
-fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &DashboardState) {
+fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut DashboardState) {
     let area = frame.area();
     let w = area.width;
 
     let active = store.active_sessions(24);
     let active_count = active.len();
+
+    // Cache active session IDs so enter() indexes the same list
+    state.cached_active_ids = active.iter().map(|(m, _)| m.session_id.clone()).collect();
 
     let active_height = if active_count > 0 {
         (active_count as u16 * 3 + 2).min(12)
@@ -429,7 +433,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(help), chunks[8]);
 }
 
-fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &DashboardState) {
+fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &mut DashboardState) {
     let area = frame.area();
     let w = area.width;
     let detail = match &state.detail {
