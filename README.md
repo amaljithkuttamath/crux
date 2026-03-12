@@ -2,7 +2,7 @@
 
 A terminal dashboard for understanding your AI coding sessions. Built for Claude Code, designed to answer: **where do my tokens go?**
 
-![Rust](https://img.shields.io/badge/rust-2021-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Rust](https://img.shields.io/badge/rust-2021-orange) ![License](https://img.shields.io/badge/license-MIT-blue) [![crates.io](https://img.shields.io/crates/v/crux.svg)](https://crates.io/crates/crux)
 
 ## What it does
 
@@ -11,17 +11,28 @@ crux reads Claude Code's session logs and gives you a live, interactive terminal
 - **Active sessions** with real-time context window fill, cache hit rate, efficiency grades (A-F), and compaction detection
 - **Session timeline** drill-down showing context growth, cost spikes, and notable events
 - **Daily/weekly trends** with token volume bar charts and model breakdowns
-- **Insights view** with cache efficiency, output ratios, 24h activity heatmaps, and heaviest sessions
 - **Session browser** with full conversation replay
 - **MCP server** exposing 5 analysis tools for session health, cost breakdown, and restart recommendations
 
 ## Install
 
+### Homebrew (macOS and Linux)
+
 ```bash
-cargo install --path .
+brew install amaljithkuttamath/tap/crux
 ```
 
-Or build from source:
+### Cargo
+
+```bash
+cargo install crux
+```
+
+### From release binaries
+
+Download the latest binary for your platform from [Releases](https://github.com/amaljithkuttamath/crux/releases).
+
+### From source
 
 ```bash
 git clone https://github.com/amaljithkuttamath/crux.git
@@ -32,33 +43,71 @@ cargo build --release
 
 ## Usage
 
-```bash
-# Launch the interactive dashboard
-crux
+### Interactive dashboard
 
-# Quick summaries
+```bash
+crux
+```
+
+The dashboard has three views:
+
+| View | Key | What it shows |
+|------|-----|---------------|
+| **Dashboard** | (default) | Active sessions, project breakdown, efficiency grades |
+| **History** | `h` | Daily/weekly token trends, model usage over time |
+| **Sessions** | `s` | Browse all sessions, drill into conversation replay |
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `h` | Switch to History view |
+| `s` | Switch to Sessions view |
+| `Tab` | Toggle focus between active sessions and projects (Dashboard) |
+| `Enter` | Drill into session detail / context timeline |
+| `Esc` | Back to previous view |
+| `j` / `k` | Scroll down / up |
+| `q` | Quit |
+
+### CLI commands
+
+For quick lookups without the TUI:
+
+```bash
 crux summary     # today's totals, one line
 crux daily       # last 7 days table
 crux project     # per-project breakdown
 crux session     # list sessions with token counts
+```
 
-# Run as MCP server (for integration with Claude Code)
+### MCP server
+
+Run crux as an MCP server for Claude Code to query your session analytics mid-conversation:
+
+```bash
 crux serve
 ```
 
-### Dashboard navigation
+This exposes 5 tools over stdio:
 
-| Key | Action |
-|-----|--------|
-| `Tab` | Switch between active sessions and projects |
-| `Enter` | Drill into session detail / context timeline |
-| `Esc` | Back |
-| `d` | Daily view |
-| `t` | Trends view |
-| `m` | Models view |
-| `i` | Insights view |
-| `s` | Sessions browser |
-| `q` | Quit |
+- `session_health` - real-time session metrics and efficiency grade
+- `session_cost` - detailed cost breakdown with context growth premium
+- `should_restart` - recommendation engine for when to start fresh
+- `list_sessions` - browse recent sessions with filters
+- `search_sessions` - keyword search across session topics
+
+Add to your Claude Code config (`~/.claude.json`):
+
+```json
+{
+  "mcpServers": {
+    "crux": {
+      "command": "crux",
+      "args": ["serve"]
+    }
+  }
+}
+```
 
 ## Configuration
 
@@ -74,29 +123,6 @@ exclude_projects = ["test-project"]
 
 # Insights sparkline range
 insights_sparkline_days = 14
-```
-
-## MCP server
-
-crux exposes 5 tools over MCP for querying session analytics programmatically:
-
-- `session_health` - real-time session metrics and efficiency grade
-- `session_cost` - detailed cost breakdown with context growth premium
-- `should_restart` - recommendation engine for when to start fresh
-- `list_sessions` - browse recent sessions with filters
-- `search_sessions` - keyword search across session topics
-
-Add to your Claude Code MCP config:
-
-```json
-{
-  "mcpServers": {
-    "crux": {
-      "command": "crux",
-      "args": ["serve"]
-    }
-  }
-}
 ```
 
 ## How it works
