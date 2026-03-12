@@ -176,12 +176,7 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
     frame.render_widget(Paragraph::new(divider(w)), chunks[6]);
 
     // ── Help ──
-    let help = Line::from(vec![
-        Span::styled("   esc", Style::default().fg(ACCENT)),
-        Span::styled(" back   ", Style::default().fg(FG_MUTED)),
-        Span::styled("q", Style::default().fg(ACCENT)),
-        Span::styled(" quit", Style::default().fg(FG_MUTED)),
-    ]);
+    let help = help_bar(&[("esc", "back"), ("q", "quit")]);
     frame.render_widget(Paragraph::new(help), chunks[7]);
 }
 
