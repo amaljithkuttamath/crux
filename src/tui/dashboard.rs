@@ -147,7 +147,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             Constraint::Length(2),              // title
             Constraint::Length(active_height),   // active sessions
             Constraint::Length(1),              // divider
-            Constraint::Length(5),              // today + cost rate
+            Constraint::Length(6),              // today + cost rate
             Constraint::Length(1),              // divider
             Constraint::Length(1),              // projects header
             Constraint::Min(3),                // project list
@@ -269,41 +269,101 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
     frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
 
-    // ── Today + Period Summary (non-selectable) ──
+    // ── Summary: 2-column layout ──
+    let mode = LayoutMode::from_width(w);
     let today = store.today();
     let yesterday = store.yesterday();
     let week = store.this_week();
-    let all = store.all_time();
 
-    let (budget_str, budget_pct) = if let Some(budget) = config.budget_daily {
-        let p = today.cost / budget * 100.0;
-        (format!("  {:.0}% of daily budget", p), Some(p))
-    } else if let Some(budget) = config.budget_weekly {
-        let p = week.cost / budget * 100.0;
-        (format!("  {:.0}% of weekly budget", p), Some(p))
-    } else {
-        (String::new(), None)
-    };
+    match mode {
+        LayoutMode::Compact => {
+            let period = vec![
+                period_line("   today      ", &today, true, String::new(), FG_FAINT),
+                period_line("   yesterday  ", &yesterday, false, String::new(), FG_FAINT),
+                period_line("   this week  ", &week, false, String::new(), FG_FAINT),
+            ];
+            frame.render_widget(Paragraph::new(period), chunks[3]);
+        }
+        _ => {
+            let summary_cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(55),
+                    Constraint::Percentage(45),
+                ])
+                .split(chunks[3]);
 
-    let budget_color = match budget_pct {
-        Some(p) if p > 90.0 => RED,
-        Some(p) if p > 70.0 => YELLOW,
-        _ => FG_FAINT,
-    };
+            let (budget_str, budget_pct) = if let Some(budget) = config.budget_daily {
+                let p = today.cost / budget * 100.0;
+                (format!("  {:.0}% of daily budget", p), Some(p))
+            } else if let Some(budget) = config.budget_weekly {
+                let p = week.cost / budget * 100.0;
+                (format!("  {:.0}% of weekly budget", p), Some(p))
+            } else {
+                (String::new(), None)
+            };
 
-    let period = vec![
-        period_line("   today      ", &today, true, budget_str, budget_color),
-        period_line("   yesterday  ", &yesterday, false, String::new(), FG_FAINT),
-        period_line("   this week  ", &week, false, String::new(), FG_FAINT),
-        Line::from(vec![
-            Span::styled("   all time   ", Style::default().fg(FG_MUTED)),
-            Span::styled(compact(all.total_tokens()), Style::default().fg(FG_MUTED)),
-            Span::styled("  tokens  ", Style::default().fg(FG_FAINT)),
-            Span::styled(pricing::format_cost(all.cost), Style::default().fg(FG_MUTED)),
-            Span::styled(format!("  {} sessions", all.session_count), Style::default().fg(FG_FAINT)),
-        ]),
-    ];
-    frame.render_widget(Paragraph::new(period), chunks[3]);
+            let budget_color = match budget_pct {
+                Some(p) if p > 90.0 => RED,
+                Some(p) if p > 70.0 => YELLOW,
+                _ => FG_FAINT,
+            };
+
+            let left = vec![
+                period_line("   today      ", &today, true, String::new(), FG_FAINT),
+                period_line("   yesterday  ", &yesterday, false, String::new(), FG_FAINT),
+                period_line("   this week  ", &week, false, String::new(), FG_FAINT),
+                if budget_pct.is_some() {
+                    let bp = budget_pct.unwrap_or(0.0);
+                    let bw = 15usize;
+                    let (bf, be) = smooth_bar(bp, 100.0, bw);
+                    Line::from(vec![
+                        Span::styled("   budget ", Style::default().fg(FG_MUTED)),
+                        Span::styled(bf, Style::default().fg(budget_color)),
+                        Span::styled(be, Style::default().fg(FG_FAINT)),
+                        Span::styled(format!(" {:.0}%", bp), Style::default().fg(budget_color)),
+                        Span::styled(budget_str, Style::default().fg(FG_FAINT)),
+                    ])
+                } else {
+                    Line::from(Span::raw(""))
+                },
+            ];
+            frame.render_widget(Paragraph::new(left), summary_cols[0]);
+
+            let days_data = store.by_day(7);
+            let sessions_spark = store.sessions_per_day(7);
+            let spark_str = spark(&sessions_spark);
+
+            let week_sessions: usize = days_data.iter().map(|d| d.session_count).sum();
+            let mut right_lines = vec![
+                Line::from(vec![
+                    Span::styled("  7d ", Style::default().fg(FG_FAINT)),
+                    Span::styled(spark_str, Style::default().fg(ACCENT)),
+                    Span::styled(format!("  {} sessions", week_sessions), Style::default().fg(FG_MUTED)),
+                ]),
+            ];
+
+            let max_tokens = days_data.iter()
+                .map(|d| d.input_tokens + d.output_tokens + d.cache_creation_tokens + d.cache_read_tokens)
+                .max()
+                .unwrap_or(1);
+            let mini_bar_w = 10usize;
+
+            for day in days_data.iter().take(5).rev() {
+                let total = day.input_tokens + day.output_tokens + day.cache_creation_tokens + day.cache_read_tokens;
+                let weekday = day.date.format("%a").to_string();
+                let (bf, be) = smooth_bar(total as f64, max_tokens as f64, mini_bar_w);
+                right_lines.push(Line::from(vec![
+                    Span::styled(format!("  {} ", weekday), Style::default().fg(FG_FAINT)),
+                    Span::styled(bf, Style::default().fg(ACCENT)),
+                    Span::styled(be, Style::default().fg(FG_FAINT)),
+                    Span::styled(format!(" {}  {}s", compact(total), day.session_count), Style::default().fg(FG_MUTED)),
+                ]));
+            }
+
+            frame.render_widget(Paragraph::new(right_lines), summary_cols[1]);
+        }
+    }
     frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
     // ── Projects header ──
