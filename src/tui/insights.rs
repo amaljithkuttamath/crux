@@ -26,17 +26,18 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
         .split(area);
 
     // ── Title ──
-    let sparkline_str = spark(&insights.daily_costs);
-    let total_7d: f64 = insights.daily_costs.iter().sum();
+    let sessions_spark_data = store.sessions_per_day(config.sparkline_days);
+    let sparkline_str = spark(&sessions_spark_data);
+    let total_sessions_period: f64 = sessions_spark_data.iter().sum();
     let title = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("   insights", Style::default().fg(ACCENT).bold()),
             Span::styled(
-                format!("{}{}d spend  {}  {}",
-                    " ".repeat((w as usize).saturating_sub(55)),
+                format!("{}{}d activity  {}  {:.0} sessions",
+                    " ".repeat((w as usize).saturating_sub(58)),
                     config.sparkline_days,
                     sparkline_str,
-                    pricing::format_cost(total_7d),
+                    total_sessions_period,
                 ),
                 Style::default().fg(FG_MUTED),
             ),
