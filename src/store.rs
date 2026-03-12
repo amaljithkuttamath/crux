@@ -712,6 +712,38 @@ impl Store {
         if all.session_count == 0 { return 0.0; }
         all.cost / all.session_count as f64
     }
+
+    /// Count consecutive days (ending today or yesterday) with at least one session
+    pub fn streak_days(&self) -> usize {
+        let mut dates: HashSet<NaiveDate> = HashSet::new();
+        for r in &self.records {
+            dates.insert(r.timestamp.date_naive());
+        }
+        let today = Utc::now().date_naive();
+        let mut streak = 0usize;
+        let start = if dates.contains(&today) { today } else { today - Duration::days(1) };
+        if !dates.contains(&start) { return 0; }
+        let mut day = start;
+        while dates.contains(&day) {
+            streak += 1;
+            day -= Duration::days(1);
+        }
+        streak
+    }
+
+    /// Sessions per day for the last N days (oldest first), for sparkline
+    pub fn sessions_per_day(&self, days: usize) -> Vec<f64> {
+        let day_data = self.by_day(days);
+        let today = Utc::now().date_naive();
+        let mut result = vec![0.0; days];
+        for d in &day_data {
+            let age = (today - d.date).num_days() as usize;
+            if age < days {
+                result[days - 1 - age] = d.session_count as f64;
+            }
+        }
+        result
+    }
 }
 
 fn simplify_model(model: &str) -> String {
