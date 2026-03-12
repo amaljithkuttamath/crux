@@ -96,3 +96,13 @@ pub fn smooth_bar(value: f64, max: f64, width: usize) -> (String, String) {
     (filled, empty)
 }
 
+/// Shared help bar from key-label pairs
+pub fn help_bar(bindings: &[(&str, &str)]) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = vec![Span::styled("   ", Style::default())];
+    for (key, label) in bindings {
+        spans.push(Span::styled(key.to_string(), Style::default().fg(ACCENT)));
+        spans.push(Span::styled(format!(" {}  ", label), Style::default().fg(FG_MUTED)));
+    }
+    Line::from(spans)
+}
+
