@@ -209,7 +209,6 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
             let ctx_pct = (analysis.context_current as f64 / 167_000.0 * 100.0).min(100.0);
             let bar_w = 20usize;
-            let filled = ((ctx_pct / 100.0) * bar_w as f64).round() as usize;
             let bar_color = if ctx_pct > 85.0 { RED } else if ctx_pct > 60.0 { YELLOW } else { Color::Rgb(120, 190, 120) };
 
             let name_w = (w as usize).saturating_sub(78).max(8);
@@ -228,30 +227,35 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                 Span::styled(format!("  {}", format_ago_short(meta.end_time)), Style::default().fg(FG_FAINT)),
             ]));
 
-            // Line 2: context bar
-            let bar_filled: String = "\u{2588}".repeat(filled);
-            let bar_empty: String = "\u{2591}".repeat(bar_w.saturating_sub(filled));
-            lines.push(Line::from(vec![
+            // Line 2: context bar + agents
+            let (bar_f, bar_e) = smooth_bar(ctx_pct, 100.0, bar_w);
+            let mut ctx_spans = vec![
                 Span::styled("     ctx ", Style::default().fg(FG_FAINT)),
-                Span::styled(bar_filled, Style::default().fg(bar_color)),
-                Span::styled(bar_empty, Style::default().fg(FG_FAINT)),
+                Span::styled(bar_f, Style::default().fg(bar_color)),
+                Span::styled(bar_e, Style::default().fg(FG_FAINT)),
                 Span::styled(
-                    format!(" {}  {:.1}x growth", compact(analysis.context_current), analysis.context_growth),
+                    format!(" {:.0}%  {}  {:.1}x",
+                        ctx_pct, compact(analysis.context_current), analysis.context_growth),
                     Style::default().fg(FG_MUTED),
                 ),
                 Span::styled(
                     format!("  cache {:.0}%", analysis.cache_hit_rate * 100.0),
                     Style::default().fg(FG_FAINT),
                 ),
-                if analysis.compaction_count > 0 {
-                    Span::styled(
-                        format!("  {} compactions", analysis.compaction_count),
-                        Style::default().fg(FG_FAINT),
-                    )
-                } else {
-                    Span::raw("")
-                },
-            ]));
+            ];
+            if analysis.compaction_count > 0 {
+                ctx_spans.push(Span::styled(
+                    format!("  {} compactions", analysis.compaction_count),
+                    Style::default().fg(FG_FAINT),
+                ));
+            }
+            if meta.agent_spawns > 0 {
+                ctx_spans.push(Span::styled(
+                    format!("  {} agents", meta.agent_spawns),
+                    Style::default().fg(YELLOW),
+                ));
+            }
+            lines.push(Line::from(ctx_spans));
 
             if active.len() > 1 {
                 lines.push(Line::from(Span::raw("")));
