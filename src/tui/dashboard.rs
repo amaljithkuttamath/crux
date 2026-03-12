@@ -188,11 +188,6 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                     format!("  {} active session{}", active_count, if active_count > 1 { "s" } else { "" }),
                     Style::default().fg(FG_MUTED),
                 ),
-                if in_active_zone {
-                    Span::styled("  [focused]", Style::default().fg(FG_FAINT))
-                } else {
-                    Span::raw("")
-                },
             ]),
         ];
 
@@ -315,14 +310,9 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     let in_project_zone = state.focus == FocusZone::Projects;
     let proj_header = Line::from(vec![
         Span::styled("   projects", Style::default().fg(ACCENT)),
-        if in_project_zone {
-            Span::styled("  [focused]", Style::default().fg(FG_FAINT))
-        } else {
-            Span::raw("")
-        },
         Span::styled(
             format!("{}tokens       cost   sessions    last",
-                " ".repeat((w as usize).saturating_sub(if in_project_zone { 73 } else { 62 }).max(2))),
+                " ".repeat((w as usize).saturating_sub(62).max(2))),
             Style::default().fg(FG_MUTED),
         ),
     ]);
