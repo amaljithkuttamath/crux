@@ -2,7 +2,7 @@
 
 A terminal dashboard for understanding your AI coding sessions. Built for Claude Code, designed to answer: **where do my tokens go?**
 
-![Rust](https://img.shields.io/badge/rust-2021-orange) ![License](https://img.shields.io/badge/license-MIT-blue) [![crates.io](https://img.shields.io/crates/v/crux.svg)](https://crates.io/crates/crux)
+![Rust](https://img.shields.io/badge/rust-2021-orange) ![License](https://img.shields.io/badge/license-MIT-blue) [![crates.io](https://img.shields.io/crates/v/crux-tokens.svg)](https://crates.io/crates/crux-tokens)
 
 ## What it does
 
@@ -25,7 +25,7 @@ brew install amaljithkuttamath/tap/crux
 ### Cargo
 
 ```bash
-cargo install crux
+cargo install crux-tokens
 ```
 
 ### From release binaries
