@@ -9,6 +9,30 @@ pub const FG_FAINT: Color = Color::Rgb(110, 105, 98);   // subtle but visible
 pub const YELLOW: Color = Color::Rgb(230, 190, 90);      // warning
 pub const RED: Color = Color::Rgb(220, 100, 90);          // critical
 
+pub enum LayoutMode {
+    Compact,
+    Standard,
+    Wide,
+}
+
+impl LayoutMode {
+    pub fn from_width(w: u16) -> Self {
+        match w {
+            0..=99 => Self::Compact,
+            100..=139 => Self::Standard,
+            _ => Self::Wide,
+        }
+    }
+
+    pub fn bar_width(&self) -> usize {
+        match self {
+            Self::Compact => 15,
+            Self::Standard => 20,
+            Self::Wide => 25,
+        }
+    }
+}
+
 pub fn compact(n: u64) -> String {
     if n >= 1_000_000_000 {
         format!("{:.1}B", n as f64 / 1_000_000_000.0)
