@@ -15,11 +15,11 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
         .margin(1)
         .constraints([
             Constraint::Length(2),   // title + sparkline
-            Constraint::Length(6),   // unit economics
+            Constraint::Length(6),   // efficiency bars
             Constraint::Length(1),   // divider
-            Constraint::Length(4),   // model ROI
+            Constraint::Length(3),   // 24h activity chart
             Constraint::Length(1),   // divider
-            Constraint::Min(4),     // costliest sessions
+            Constraint::Min(4),     // heaviest sessions
             Constraint::Length(1),   // divider
             Constraint::Length(1),   // help
         ])
@@ -105,36 +105,34 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
     frame.render_widget(Paragraph::new(econ), chunks[1]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
 
-    // ── Model ROI ──
-    let mut roi_lines: Vec<Line> = vec![
-        Line::from(vec![
-            Span::styled("   model ROI", Style::default().fg(ACCENT)),
-            Span::styled(
-                format!("{}requests    input       output    cost/1Kout   total cost",
-                    " ".repeat((w as usize).saturating_sub(80).max(2))),
-                Style::default().fg(FG_MUTED),
-            ),
-        ]),
-    ];
+    // ── 24h Activity ──
+    let hours = store.by_hour_all();
+    let hour_values: Vec<f64> = hours.iter().map(|&h| h as f64).collect();
+    let hour_spark = spark(&hour_values);
 
-    let models = store.by_model();
-    for m in models.iter().take(3) {
-        let cpo = if m.output_tokens > 0 { m.cost / (m.output_tokens as f64 / 1000.0) } else { 0.0 };
-
-        roi_lines.push(Line::from(vec![
-            Span::styled(format!("   {:<10}", m.name), Style::default().fg(FG)),
-            Span::styled(
-                format!("{}{:>8}", " ".repeat((w as usize).saturating_sub(80).max(2)), m.record_count),
-                Style::default().fg(FG_MUTED),
-            ),
-            Span::styled(format!("{:>10}", compact(m.input_tokens)), Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:>12}", compact(m.output_tokens)), Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:>12}", pricing::format_cost(cpo)), Style::default().fg(FG)),
-            Span::styled(format!("{:>12}", pricing::format_cost(m.cost)), Style::default().fg(ACCENT)),
-        ]));
-    }
-
-    frame.render_widget(Paragraph::new(roi_lines), chunks[3]);
+    let activity_lines = if w >= 80 {
+        vec![
+            Line::from(vec![
+                Span::styled("   activity by hour  ", Style::default().fg(FG_MUTED)),
+                Span::styled(hour_spark, Style::default().fg(ACCENT)),
+            ]),
+            Line::from(vec![
+                Span::styled("                     ", Style::default().fg(FG_FAINT)),
+                Span::styled(
+                    "0     6     12    18    ".to_string(),
+                    Style::default().fg(FG_FAINT),
+                ),
+            ]),
+        ]
+    } else {
+        vec![
+            Line::from(vec![
+                Span::styled("   activity  ", Style::default().fg(FG_MUTED)),
+                Span::styled(hour_spark, Style::default().fg(ACCENT)),
+            ]),
+        ]
+    };
+    frame.render_widget(Paragraph::new(activity_lines), chunks[3]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
     // ── Costliest sessions ──
@@ -192,15 +190,3 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     }
 }
-
-
-fn format_peak_hours(hours: &[(u8, u64)]) -> String {
-    if hours.is_empty() {
-        return "--".to_string();
-    }
-    hours.iter().take(2)
-        .map(|(h, _)| format!("{:02}:00", h))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
