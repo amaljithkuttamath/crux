@@ -16,6 +16,7 @@ pub struct SessionMeta {
     pub assistant_count: usize,
     pub tools_used: Vec<String>,
     pub tool_counts: HashMap<String, usize>,
+    pub agent_spawns: usize,
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
 }
@@ -103,6 +104,8 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         tool_counts.get(b).unwrap_or(&0).cmp(tool_counts.get(a).unwrap_or(&0))
     });
 
+    let agent_spawns = tool_counts.get("Agent").copied().unwrap_or(0);
+
     let now = Utc::now();
     Ok(SessionMeta {
         session_id,
@@ -114,6 +117,7 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         assistant_count,
         tools_used,
         tool_counts,
+        agent_spawns,
         start_time: start_time.unwrap_or(now),
         end_time: end_time.unwrap_or(now),
     })
