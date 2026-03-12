@@ -24,13 +24,6 @@ impl LayoutMode {
         }
     }
 
-    pub fn bar_width(&self) -> usize {
-        match self {
-            Self::Compact => 15,
-            Self::Standard => 20,
-            Self::Wide => 25,
-        }
-    }
 }
 
 pub fn compact(n: u64) -> String {

@@ -271,9 +271,9 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
     // ── Summary: 2-column layout ──
     let mode = LayoutMode::from_width(w);
-    let today = store.today();
+    let today = today_agg;
     let yesterday = store.yesterday();
-    let week = store.this_week();
+    let week = week_agg;
 
     match mode {
         LayoutMode::Compact => {

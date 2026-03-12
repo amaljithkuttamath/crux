@@ -219,6 +219,7 @@ impl Store {
         agg
     }
 
+    #[allow(dead_code)]
     pub fn rolling_window(&self, duration: Duration) -> Aggregation {
         let cutoff = Utc::now() - duration;
         self.aggregate_records(|r| r.timestamp >= cutoff)
@@ -345,6 +346,7 @@ impl Store {
         days_vec
     }
 
+    #[allow(dead_code)]
     pub fn cost_rate(&self, window: Duration) -> f64 {
         let agg = self.rolling_window(window);
         let hours = window.num_hours().max(1) as f64;

@@ -91,6 +91,7 @@ impl Config {
         dirs
     }
 
+    #[allow(dead_code)]
     pub fn rolling_window_duration(&self) -> chrono::Duration {
         parse_duration(&self.rolling_window).unwrap_or(chrono::Duration::hours(5))
     }
