@@ -605,6 +605,26 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
         ]));
     }
 
+    // Cost per turn sparkline
+    let costs: Vec<f64> = turns.iter().map(|t| t.cost).collect();
+    if !costs.is_empty() {
+        let (peak_idx, peak_cost) = costs.iter().enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, &c)| (i, c))
+            .unwrap_or((0, 0.0));
+        let cost_spark = spark(&costs);
+
+        timeline_lines.push(Line::from(Span::raw("")));
+        timeline_lines.push(Line::from(vec![
+            Span::styled("   cost/turn: ", Style::default().fg(FG_FAINT)),
+            Span::styled(cost_spark, Style::default().fg(ACCENT)),
+            Span::styled(
+                format!("  peak {} at turn {}", pricing::format_cost(peak_cost), peak_idx + 1),
+                Style::default().fg(FG_MUTED),
+            ),
+        ]));
+    }
+
     frame.render_widget(Paragraph::new(timeline_lines), chunks[2]);
 
     frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
