@@ -207,17 +207,6 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn spark(values: &[f64]) -> String {
-    let blocks = ['_', '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
-    let max = values.iter().cloned().fold(0.0f64, f64::max);
-    if max <= 0.0 {
-        return "_".repeat(values.len());
-    }
-    values.iter().map(|v| {
-        let idx = ((v / max) * 8.0).round() as usize;
-        blocks[idx.min(8)]
-    }).collect()
-}
 
 fn format_peak_hours(hours: &[(u8, u64)]) -> String {
     if hours.is_empty() {

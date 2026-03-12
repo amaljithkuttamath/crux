@@ -58,3 +58,16 @@ pub fn divider(width: u16) -> Line<'static> {
     Line::from(Span::styled(format!("   {}", line), Style::default().fg(FG_FAINT)))
 }
 
+/// Sparkline from float values using Unicode block characters
+pub fn spark(values: &[f64]) -> String {
+    let blocks = ['_', '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
+    let max = values.iter().cloned().fold(0.0f64, f64::max);
+    if max <= 0.0 {
+        return "_".repeat(values.len());
+    }
+    values.iter().map(|v| {
+        let idx = ((v / max) * 8.0).round() as usize;
+        blocks[idx.min(8)]
+    }).collect()
+}
+
