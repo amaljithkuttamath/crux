@@ -53,7 +53,7 @@ pub struct ModelSummary {
     pub cost: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct SessionInsight {
     pub session_id: String,

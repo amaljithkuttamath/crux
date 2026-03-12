@@ -135,20 +135,23 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
     frame.render_widget(Paragraph::new(activity_lines), chunks[3]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
-    // ── Costliest sessions ──
+    // ── Heaviest sessions ──
     let max_rows = chunks[5].height as usize;
     let mut session_lines: Vec<Line> = vec![
         Line::from(vec![
-            Span::styled("   costliest sessions", Style::default().fg(ACCENT)),
+            Span::styled("   heaviest sessions", Style::default().fg(ACCENT)),
             Span::styled(
-                format!("{}model    msgs   out/in   cache%    cost",
-                    " ".repeat((w as usize).saturating_sub(72).max(2))),
+                format!("{}model   turns   out/in   cache%",
+                    " ".repeat((w as usize).saturating_sub(65).max(2))),
                 Style::default().fg(FG_MUTED),
             ),
         ]),
     ];
 
-    for s in insights.sessions.iter().take(max_rows.saturating_sub(1)) {
+    let mut sorted_sessions = insights.sessions.clone();
+    sorted_sessions.sort_by(|a, b| b.message_count.cmp(&a.message_count));
+
+    for s in sorted_sessions.iter().take(max_rows.saturating_sub(1)) {
         let ratio = if s.total_input > 0 { s.total_output as f64 / s.total_input as f64 } else { 0.0 };
         let ratio_color = if ratio > 0.3 { Color::Rgb(120, 190, 120) } else if ratio > 0.1 { FG_MUTED } else { YELLOW };
 
@@ -156,17 +159,16 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
         let cache_pct = if cache_total > 0 { s.total_cache_read as f64 / cache_total as f64 * 100.0 } else { 0.0 };
         let cache_color = grade_color(cache_pct / 100.0, config.cache_alert_ratio, config.cache_alert_ratio * 2.0);
 
-        let name_w = (w as usize).saturating_sub(65).max(10);
+        let name_w = (w as usize).saturating_sub(58).max(10);
         session_lines.push(Line::from(vec![
             Span::styled(
                 format!("   {:<width$}", truncate(&s.project, name_w), width = name_w),
                 Style::default().fg(FG),
             ),
             Span::styled(format!("{:>8}", s.model), Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:>7}", s.message_count), Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:>7}", s.message_count), Style::default().fg(ACCENT)),
             Span::styled(format!("{:>8.2}x", ratio), Style::default().fg(ratio_color)),
             Span::styled(format!("{:>8.0}%", cache_pct), Style::default().fg(cache_color)),
-            Span::styled(format!("{:>9}", pricing::format_cost(s.cost)), Style::default().fg(ACCENT)),
         ]));
     }
 
