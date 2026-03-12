@@ -257,7 +257,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "crux"
+name = "crux-tokens"
 version = "0.2.0"
 dependencies = [
  "anyhow",

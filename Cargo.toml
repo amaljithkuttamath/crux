@@ -1,8 +1,8 @@
 [package]
-name = "crux"
+name = "crux-tokens"
 version = "0.2.0"
 edition = "2021"
-description = "Terminal dashboard for AI coding tool token usage"
+description = "Terminal dashboard for Claude Code token usage and session analytics"
 license = "MIT"
 repository = "https://github.com/amaljithkuttamath/crux"
 keywords = ["claude-code", "token-usage", "terminal", "dashboard", "tui"]
