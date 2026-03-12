@@ -111,7 +111,7 @@ impl Config {
 fn config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("~/.config"))
-        .join("usagetracker")
+        .join("crux")
         .join("config.toml")
 }
 

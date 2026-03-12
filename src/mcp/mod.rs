@@ -274,7 +274,7 @@ impl ServerHandler for UsageServer {
                 .build(),
         )
         .with_server_info(Implementation::new(
-            "usagetracker",
+            "crux",
             env!("CARGO_PKG_VERSION"),
         ))
         .with_instructions(

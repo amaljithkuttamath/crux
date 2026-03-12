@@ -14,7 +14,7 @@ use store::Store;
 
 #[derive(Parser)]
 #[command(
-    name = "usagetracker",
+    name = "crux",
     about = "Terminal dashboard and MCP session analyst for AI coding tool token usage"
 )]
 struct Cli {

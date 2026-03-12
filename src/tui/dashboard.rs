@@ -163,7 +163,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
     let title = Paragraph::new(vec![
         Line::from(vec![
-            Span::styled("   usagetracker", Style::default().fg(ACCENT).bold()),
+            Span::styled("   crux", Style::default().fg(ACCENT).bold()),
             Span::styled(
                 format!("{}sessions: {} today / {} this week   streak: {}d",
                     " ".repeat((w as usize).saturating_sub(65)),
