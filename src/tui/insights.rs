@@ -218,24 +218,3 @@ fn format_peak_hours(hours: &[(u8, u64)]) -> String {
         .join(", ")
 }
 
-/// Green for good (higher is better)
-fn grade_color(value: f64, low: f64, high: f64) -> Color {
-    if value >= high {
-        Color::Rgb(120, 190, 120)
-    } else if value >= low {
-        YELLOW
-    } else {
-        RED
-    }
-}
-
-/// Red for bad (higher is worse)
-fn grade_color_inverse(value: f64, warn: f64, crit: f64) -> Color {
-    if value >= crit {
-        RED
-    } else if value >= warn {
-        YELLOW
-    } else {
-        Color::Rgb(120, 190, 120)
-    }
-}

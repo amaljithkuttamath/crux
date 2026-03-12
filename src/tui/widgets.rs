@@ -120,6 +120,28 @@ pub fn smooth_bar(value: f64, max: f64, width: usize) -> (String, String) {
     (filled, empty)
 }
 
+/// Green for good (higher is better)
+pub fn grade_color(value: f64, low: f64, high: f64) -> Color {
+    if value >= high {
+        Color::Rgb(120, 190, 120)
+    } else if value >= low {
+        YELLOW
+    } else {
+        RED
+    }
+}
+
+/// Red for bad (higher is worse)
+pub fn grade_color_inverse(value: f64, warn: f64, crit: f64) -> Color {
+    if value >= crit {
+        RED
+    } else if value >= warn {
+        YELLOW
+    } else {
+        Color::Rgb(120, 190, 120)
+    }
+}
+
 /// Shared help bar from key-label pairs
 pub fn help_bar(bindings: &[(&str, &str)]) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = vec![Span::styled("   ", Style::default())];
