@@ -44,76 +44,62 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config) {
     ]);
     frame.render_widget(title, chunks[0]);
 
-    // ── Unit economics ──
+    // ── Efficiency bars ──
     let all = store.all_time();
     let cache_denom = all.cache_read_tokens + all.input_tokens;
     let cache_hit = if cache_denom > 0 { all.cache_read_tokens as f64 / cache_denom as f64 } else { 0.0 };
     let out_in = if all.input_tokens > 0 { all.output_tokens as f64 / all.input_tokens as f64 } else { 0.0 };
-    let cost_per_out_1k = if all.output_tokens > 0 { all.cost / (all.output_tokens as f64 / 1000.0) } else { 0.0 };
-    let cost_per_session = insights.avg_cost_per_session;
 
-    // Waste: tokens in that produced < 10 tokens out in same request
-    // (approximated by looking at sessions with very low output ratio)
+    let bar_w = 20usize;
+    let cache_label = if cache_hit > 0.6 { "strong" } else if cache_hit > 0.3 { "fair" } else { "low" };
+    let cache_c = grade_color(cache_hit, config.cache_alert_ratio, config.cache_alert_ratio * 2.0);
+    let (cb_f, cb_e) = smooth_bar(cache_hit, 1.0, bar_w);
+
+    let out_label = if out_in > 0.3 { "strong" } else if out_in > 0.1 { "fair" } else { "low" };
+    let out_c = grade_color(out_in, 0.1, 0.3);
+    let (ob_f, ob_e) = smooth_bar(out_in, 1.0, bar_w);
+
     let low_output_sessions = insights.sessions.iter()
         .filter(|s| s.total_input > 0 && (s.total_output as f64 / s.total_input as f64) < 0.05)
         .count();
     let waste_pct = if !insights.sessions.is_empty() {
         low_output_sessions as f64 / insights.sessions.len() as f64 * 100.0
     } else { 0.0 };
-
-    let cache_color = grade_color(cache_hit, config.cache_alert_ratio, config.cache_alert_ratio * 2.0);
-    let waste_color = grade_color_inverse(waste_pct, 15.0, 30.0);
-    let trend_color = grade_color_inverse(insights.cost_trend, 1.3, 1.8);
-
-    let trend_arrow = if insights.cost_trend > 1.1 { "^" } else if insights.cost_trend < 0.9 { "v" } else { "=" };
+    let waste_label = if waste_pct < 15.0 { "ok" } else if waste_pct < 30.0 { "some" } else { "high" };
+    let waste_c = grade_color_inverse(waste_pct, 15.0, 30.0);
+    let (wb_f, wb_e) = smooth_bar(waste_pct, 100.0, bar_w);
 
     let econ = vec![
         Line::from(vec![
-            Span::styled("   cost/1K output    ", Style::default().fg(FG_MUTED)),
-            Span::styled(pricing::format_cost(cost_per_out_1k), Style::default().fg(ACCENT).bold()),
-            Span::styled("      cache hit rate      ", Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:.0}%", cache_hit * 100.0), Style::default().fg(cache_color).bold()),
-            Span::styled(
-                if cache_hit > 0.6 { "  strong" } else if cache_hit > 0.3 { "  fair" } else { "  low" },
-                Style::default().fg(cache_color),
-            ),
+            Span::styled("   cache hit    ", Style::default().fg(FG_MUTED)),
+            Span::styled(cb_f, Style::default().fg(cache_c)),
+            Span::styled(cb_e, Style::default().fg(FG_FAINT)),
+            Span::styled(format!("  {:.0}%", cache_hit * 100.0), Style::default().fg(cache_c).bold()),
+            Span::styled(format!("  {}", cache_label), Style::default().fg(cache_c)),
         ]),
         Line::from(vec![
-            Span::styled("   cost/session      ", Style::default().fg(FG_MUTED)),
-            Span::styled(pricing::format_cost(cost_per_session), Style::default().fg(FG).bold()),
-            Span::styled("      output/input ratio  ", Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:.2}x", out_in), Style::default().fg(FG)),
+            Span::styled("   output/input ", Style::default().fg(FG_MUTED)),
+            Span::styled(ob_f, Style::default().fg(out_c)),
+            Span::styled(ob_e, Style::default().fg(FG_FAINT)),
+            Span::styled(format!("  {:.0}%", out_in * 100.0), Style::default().fg(out_c).bold()),
+            Span::styled(format!("  {}", out_label), Style::default().fg(out_c)),
         ]),
         Line::from(vec![
-            Span::styled("   cost trend        ", Style::default().fg(FG_MUTED)),
-            Span::styled(
-                format!("{} {:.0}% vs avg", trend_arrow, (insights.cost_trend - 1.0).abs() * 100.0),
-                Style::default().fg(trend_color).bold(),
-            ),
-            Span::styled("      low-output sessions ", Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:.0}%", waste_pct), Style::default().fg(waste_color).bold()),
-            Span::styled(
-                if waste_pct > 30.0 { "  high waste" } else if waste_pct > 15.0 { "  some waste" } else { "" },
-                Style::default().fg(waste_color),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("   avg depth         ", Style::default().fg(FG_MUTED)),
-            Span::styled(format!("{:.1} msgs/session", insights.avg_session_depth), Style::default().fg(FG)),
-            Span::styled("      peak hours          ", Style::default().fg(FG_MUTED)),
-            Span::styled(
-                format_peak_hours(&insights.busiest_hours),
-                Style::default().fg(FG),
-            ),
+            Span::styled("   waste sess.  ", Style::default().fg(FG_MUTED)),
+            Span::styled(wb_f, Style::default().fg(waste_c)),
+            Span::styled(wb_e, Style::default().fg(FG_FAINT)),
+            Span::styled(format!("  {:.0}%", waste_pct), Style::default().fg(waste_c).bold()),
+            Span::styled(format!("  {}", waste_label), Style::default().fg(waste_c)),
         ]),
         Line::from(Span::raw("")),
         Line::from(vec![
-            Span::styled("   cache waste       ", Style::default().fg(FG_MUTED)),
+            Span::styled("   avg depth    ", Style::default().fg(FG_MUTED)),
+            Span::styled(format!("{:.1} msgs/session", insights.avg_session_depth), Style::default().fg(FG)),
+            Span::styled("      cost/session  ", Style::default().fg(FG_MUTED)),
             Span::styled(
-                format!("{:.0}%", insights.cache_waste_ratio * 100.0),
-                Style::default().fg(grade_color_inverse(insights.cache_waste_ratio * 100.0, 30.0, 60.0)),
+                format!("{} (API eq.)", pricing::format_cost(insights.avg_cost_per_session)),
+                Style::default().fg(FG_FAINT),
             ),
-            Span::styled("  writes never read back", Style::default().fg(FG_FAINT)),
         ]),
     ];
     frame.render_widget(Paragraph::new(econ), chunks[1]);
