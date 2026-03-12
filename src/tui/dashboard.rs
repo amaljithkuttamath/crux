@@ -424,21 +424,14 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(divider(w)), chunks[7]);
 
     // ── Help bar ──
-    let help = Line::from(vec![
-        Span::styled("   \u{2191}\u{2193}", Style::default().fg(ACCENT)),
-        Span::styled(" navigate  ", Style::default().fg(FG_MUTED)),
-        Span::styled("tab", Style::default().fg(ACCENT)),
-        Span::styled(" switch  ", Style::default().fg(FG_MUTED)),
-        Span::styled("enter", Style::default().fg(ACCENT)),
-        Span::styled(" detail  ", Style::default().fg(FG_MUTED)),
-        Span::styled("d", Style::default().fg(ACCENT)),
-        Span::styled(" daily  ", Style::default().fg(FG_MUTED)),
-        Span::styled("t", Style::default().fg(ACCENT)),
-        Span::styled(" trends  ", Style::default().fg(FG_MUTED)),
-        Span::styled("s", Style::default().fg(ACCENT)),
-        Span::styled(" sessions  ", Style::default().fg(FG_MUTED)),
-        Span::styled("q", Style::default().fg(ACCENT)),
-        Span::styled(" quit", Style::default().fg(FG_MUTED)),
+    let help = help_bar(&[
+        ("\u{2191}\u{2193}", "navigate"),
+        ("tab", "switch"),
+        ("enter", "detail"),
+        ("d", "daily"),
+        ("t", "trends"),
+        ("s", "sessions"),
+        ("q", "quit"),
     ]);
     frame.render_widget(Paragraph::new(help), chunks[8]);
 }
@@ -630,12 +623,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
     frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
     // ── Help ──
-    let help = Line::from(vec![
-        Span::styled("   esc", Style::default().fg(ACCENT)),
-        Span::styled(" back   ", Style::default().fg(FG_MUTED)),
-        Span::styled("q", Style::default().fg(ACCENT)),
-        Span::styled(" quit", Style::default().fg(FG_MUTED)),
-    ]);
+    let help = help_bar(&[("esc", "back"), ("q", "quit")]);
     frame.render_widget(Paragraph::new(help), chunks[4]);
 }
 
