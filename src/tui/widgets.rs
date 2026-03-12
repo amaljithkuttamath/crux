@@ -71,3 +71,28 @@ pub fn spark(values: &[f64]) -> String {
     }).collect()
 }
 
+/// Horizontal bar with sub-character precision using Unicode 8th blocks.
+/// Returns (filled_string, empty_string) for styled rendering.
+pub fn smooth_bar(value: f64, max: f64, width: usize) -> (String, String) {
+    if max <= 0.0 || width == 0 {
+        return (String::new(), "\u{2591}".repeat(width));
+    }
+    let ratio = (value / max).clamp(0.0, 1.0);
+    let total_eighths = (ratio * width as f64 * 8.0).round() as usize;
+    let full_blocks = total_eighths / 8;
+    let remainder = total_eighths % 8;
+
+    let partials = [' ', '\u{258F}', '\u{258E}', '\u{258D}', '\u{258C}', '\u{258B}', '\u{258A}', '\u{2589}'];
+
+    let mut filled = "\u{2588}".repeat(full_blocks);
+    let empty_start;
+    if remainder > 0 && full_blocks < width {
+        filled.push(partials[remainder]);
+        empty_start = full_blocks + 1;
+    } else {
+        empty_start = full_blocks;
+    }
+    let empty = "\u{2591}".repeat(width.saturating_sub(empty_start));
+    (filled, empty)
+}
+
