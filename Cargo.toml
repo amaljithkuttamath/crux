@@ -23,6 +23,10 @@ rmcp = { version = "1.2", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 schemars = "1.0"
 
+[[bin]]
+name = "crux"
+path = "src/main.rs"
+
 [lib]
 name = "crux"
 path = "src/lib.rs"
