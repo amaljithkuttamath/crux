@@ -1,8 +1,25 @@
 pub mod watcher;
 pub mod conversation;
+pub mod cursor;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Source {
+    ClaudeCode,
+    Cursor,
+}
+
+impl fmt::Display for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Source::ClaudeCode => write!(f, "Claude Code"),
+            Source::Cursor => write!(f, "Cursor"),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct UsageRecord {
@@ -10,6 +27,7 @@ pub struct UsageRecord {
     pub session_id: String,
     pub project: String,
     pub model: String,
+    pub source: Source,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_creation_tokens: u64,
@@ -62,6 +80,7 @@ pub fn parse_line(line: &str) -> Option<UsageRecord> {
         session_id: parsed.session_id.unwrap_or_default(),
         project: String::new(),
         model: message.model.unwrap_or_default(),
+        source: Source::ClaudeCode,
         input_tokens: input,
         output_tokens: output,
         cache_creation_tokens: cache_create,

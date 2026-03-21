@@ -314,6 +314,29 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
     // ── KPI strip + 7d sparkline ──
+    // Source breakdown
+    let sources = store.by_source();
+    let source_spans: Vec<Span> = {
+        let mut spans = Vec::new();
+        if sources.len() > 1 {
+            for (src, agg) in &sources {
+                if !spans.is_empty() {
+                    spans.push(Span::styled("  ", Style::default()));
+                }
+                let label = match src {
+                    crate::parser::Source::ClaudeCode => "CC",
+                    crate::parser::Source::Cursor => "Cu",
+                };
+                spans.push(Span::styled(
+                    format!("{} {} sess", label, agg.session_count),
+                    Style::default().fg(FG_FAINT),
+                ));
+            }
+            spans.push(Span::styled("     ", Style::default()));
+        }
+        spans
+    };
+
     // Line 1: four KPIs
     let cache_denom = all.cache_read_tokens + all.input_tokens;
     let cache_hit = if cache_denom > 0 { all.cache_read_tokens as f64 / cache_denom as f64 } else { 0.0 };
@@ -325,8 +348,10 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     let avg_cost = store.avg_session_cost_historical();
     let streak = store.streak_days();
 
-    let kpi_line = Line::from(vec![
-        Span::styled("   cache ", Style::default().fg(FG_FAINT)),
+    let mut kpi_spans = vec![Span::styled("   ", Style::default())];
+    kpi_spans.extend(source_spans);
+    kpi_spans.extend(vec![
+        Span::styled("cache ", Style::default().fg(FG_FAINT)),
         Span::styled(format!("{:.0}%", cache_hit * 100.0), Style::default().fg(cache_c).bold()),
         Span::styled("     yield ", Style::default().fg(FG_FAINT)),
         Span::styled(format!("{:.0}%", output_eff * 100.0), Style::default().fg(eff_c).bold()),
@@ -337,6 +362,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         // Budget inline if configured
         budget_span(config, &today, &week),
     ]);
+    let kpi_line = Line::from(kpi_spans);
 
     // Line 2: 7d sparkline + week total
     let days_data = store.by_day(7);

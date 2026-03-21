@@ -66,6 +66,8 @@ async fn main() -> anyhow::Result<()> {
 
 fn load_store(config: &Config) -> anyhow::Result<Store> {
     let mut store = Store::default();
+
+    // Load Claude Code JSONL files
     for data_dir in config.all_data_dirs() {
         if !data_dir.exists() {
             continue;
@@ -96,5 +98,29 @@ fn load_store(config: &Config) -> anyhow::Result<Store> {
             }
         }
     }
+
+    // Load Cursor sessions
+    if let Some(cursor_path) = config.cursor_db_path() {
+        if let Some(path_str) = cursor_path.to_str() {
+            match parser::cursor::parse_cursor_db(path_str) {
+                Ok((records, metas)) => {
+                    for r in records {
+                        if !config.is_excluded(&r.project) {
+                            store.add(r);
+                        }
+                    }
+                    for m in metas {
+                        if m.user_count > 0 && !config.is_excluded(&m.project) {
+                            store.add_session_meta(m);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to load Cursor data: {}", e);
+                }
+            }
+        }
+    }
+
     Ok(store)
 }

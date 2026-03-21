@@ -1,4 +1,4 @@
-use crate::parser::UsageRecord;
+use crate::parser::{Source, UsageRecord};
 use crate::parser::conversation::SessionMeta;
 use crate::pricing;
 use chrono::{Duration, NaiveDate, Timelike, Utc};
@@ -236,6 +236,33 @@ impl Store {
 
     pub fn all_time(&self) -> Aggregation {
         self.aggregate_records(|_| true)
+    }
+
+    pub fn by_source(&self) -> HashMap<Source, Aggregation> {
+        let mut map: HashMap<Source, Aggregation> = HashMap::new();
+        for r in &self.records {
+            let agg = map.entry(r.source).or_default();
+            agg.input_tokens += r.input_tokens;
+            agg.output_tokens += r.output_tokens;
+            agg.cache_creation_tokens += r.cache_creation_tokens;
+            agg.cache_read_tokens += r.cache_read_tokens;
+            agg.record_count += 1;
+            agg.cost += pricing::estimate_cost(
+                &r.model, r.input_tokens, r.output_tokens,
+                r.cache_creation_tokens, r.cache_read_tokens,
+            );
+        }
+        // Count unique sessions per source
+        let mut session_sets: HashMap<Source, HashSet<&String>> = HashMap::new();
+        for r in &self.records {
+            session_sets.entry(r.source).or_default().insert(&r.session_id);
+        }
+        for (src, sessions) in session_sets {
+            if let Some(agg) = map.get_mut(&src) {
+                agg.session_count = sessions.len();
+            }
+        }
+        map
     }
 
     pub fn by_model(&self) -> Vec<ModelSummary> {

@@ -1,16 +1,36 @@
+use crate::parser::Source;
 use crate::store::Store;
 
 pub fn format_summary(store: &Store) -> String {
     let today = store.today();
     let total = today.total_tokens();
-    format!(
+    let mut out = format!(
         "today: {} tokens across {} sessions ({}in {}out {}cached)\n",
         compact(total),
         today.session_count,
         compact(today.input_tokens),
         compact(today.output_tokens),
         compact(today.cache_creation_tokens + today.cache_read_tokens),
-    )
+    );
+
+    // Show source breakdown if both sources have data
+    let sources = store.by_source();
+    if sources.len() > 1 {
+        for (src, agg) in &sources {
+            let label = match src {
+                Source::ClaudeCode => "Claude Code",
+                Source::Cursor => "Cursor",
+            };
+            out.push_str(&format!(
+                "  {}: {} tokens, {} sessions\n",
+                label,
+                compact(agg.total_tokens()),
+                agg.session_count,
+            ));
+        }
+    }
+
+    out
 }
 
 pub fn format_daily(store: &Store, days: usize) -> String {

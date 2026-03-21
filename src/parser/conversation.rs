@@ -1,3 +1,4 @@
+use crate::parser::Source;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ pub struct SessionMeta {
     pub project: String,
     pub file_path: String,
     pub first_message: String,
+    pub source: Source,
     pub message_count: usize,
     pub user_count: usize,
     pub assistant_count: usize,
@@ -112,6 +114,7 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         project,
         file_path: path.to_string(),
         first_message,
+        source: Source::ClaudeCode,
         message_count: user_count + assistant_count,
         user_count,
         assistant_count,

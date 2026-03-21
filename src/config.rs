@@ -32,6 +32,10 @@ pub struct Config {
 
     // Additional watch paths
     pub watch_paths: Vec<String>,
+
+    // Cursor IDE integration
+    pub enable_cursor: bool,
+    pub cursor_data_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -63,6 +67,8 @@ impl Default for Config {
             peak_hours: None,
             model_costs: HashMap::new(),
             watch_paths: Vec::new(),
+            enable_cursor: true,
+            cursor_data_path: None,
         }
     }
 }
@@ -100,12 +106,35 @@ impl Config {
         parse_std_duration(&self.refresh_interval).unwrap_or(std::time::Duration::from_secs(2))
     }
 
+    /// Returns the Cursor state.vscdb path if Cursor is enabled and the file exists.
+    pub fn cursor_db_path(&self) -> Option<PathBuf> {
+        if !self.enable_cursor { return None; }
+        let path = match &self.cursor_data_path {
+            Some(p) => PathBuf::from(shellexpand(p)),
+            None => default_cursor_path(),
+        };
+        if path.exists() { Some(path) } else { None }
+    }
+
     pub fn is_excluded(&self, project: &str) -> bool {
         self.exclude_projects.iter().any(|e| {
             project.eq_ignore_ascii_case(e) || project.contains(e.as_str())
         })
     }
 
+}
+
+fn default_cursor_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        dirs::home_dir()
+            .unwrap_or_default()
+            .join("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+    } else {
+        // Linux
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("~/.config"))
+            .join("Cursor/User/globalStorage/state.vscdb")
+    }
 }
 
 fn config_path() -> PathBuf {

@@ -1,11 +1,11 @@
 [package]
 name = "crux-tokens"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "Terminal dashboard for Claude Code token usage and session analytics"
+description = "Terminal dashboard for AI coding session analytics (Claude Code + Cursor)"
 license = "MIT"
 repository = "https://github.com/amaljithkuttamath/crux"
-keywords = ["claude-code", "token-usage", "terminal", "dashboard", "tui"]
+keywords = ["claude-code", "cursor", "token-usage", "terminal", "dashboard"]
 categories = ["command-line-utilities"]
 
 [dependencies]
@@ -22,6 +22,7 @@ anyhow = "1"
 rmcp = { version = "1.2", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 schemars = "1.0"
+rusqlite = { version = "0.34", features = ["bundled"] }
 
 [[bin]]
 name = "crux"

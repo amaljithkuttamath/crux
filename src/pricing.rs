@@ -9,6 +9,7 @@ pub struct ModelPricing {
 }
 
 pub fn pricing_for_model(model: &str) -> ModelPricing {
+    // Claude models
     if model.contains("opus") {
         ModelPricing {
             input_per_m: 15.0,
@@ -23,8 +24,51 @@ pub fn pricing_for_model(model: &str) -> ModelPricing {
             cache_write_per_m: 1.0,
             cache_read_per_m: 0.08,
         }
+    } else if model.contains("sonnet") {
+        ModelPricing {
+            input_per_m: 3.0,
+            output_per_m: 15.0,
+            cache_write_per_m: 3.75,
+            cache_read_per_m: 0.30,
+        }
+    // Non-Claude models (Cursor) - approximate public API rates, no cache semantics
+    } else if model.contains("gpt-5") || model.contains("codex") {
+        ModelPricing {
+            input_per_m: 2.50,
+            output_per_m: 10.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.0,
+        }
+    } else if model.contains("grok") {
+        ModelPricing {
+            input_per_m: 3.0,
+            output_per_m: 15.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.0,
+        }
+    } else if model.contains("gemini") {
+        ModelPricing {
+            input_per_m: 1.25,
+            output_per_m: 10.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.0,
+        }
+    } else if model.contains("supernova") {
+        ModelPricing {
+            input_per_m: 3.0,
+            output_per_m: 15.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.0,
+        }
+    } else if model.contains("deepseek") {
+        ModelPricing {
+            input_per_m: 0.27,
+            output_per_m: 1.10,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.0,
+        }
     } else {
-        // sonnet (default)
+        // Default fallback (sonnet-equivalent)
         ModelPricing {
             input_per_m: 3.0,
             output_per_m: 15.0,

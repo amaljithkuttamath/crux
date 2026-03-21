@@ -1,12 +1,12 @@
 # crux
 
-A terminal dashboard for understanding your AI coding sessions. Built for Claude Code, designed to answer: **where do my tokens go?**
+A terminal dashboard for understanding your AI coding sessions. Built for Claude Code and Cursor, designed to answer: **where do my tokens go?**
 
 ![Rust](https://img.shields.io/badge/rust-2021-orange) ![License](https://img.shields.io/badge/license-MIT-blue) [![crates.io](https://img.shields.io/crates/v/crux-tokens.svg)](https://crates.io/crates/crux-tokens)
 
 ## What it does
 
-crux reads Claude Code's session logs and gives you a live, interactive terminal dashboard with:
+crux reads session data from Claude Code (JSONL logs) and Cursor IDE (SQLite database) and gives you a live, interactive terminal dashboard with:
 
 - **Active sessions** with real-time context window fill, cache hit rate, efficiency grades (A-F), and compaction detection
 - **Session timeline** drill-down showing context growth, cost spikes, and notable events
@@ -123,11 +123,19 @@ exclude_projects = ["test-project"]
 
 # Insights sparkline range
 insights_sparkline_days = 14
+
+# Cursor IDE (auto-detected, enabled by default)
+enable_cursor = true
+# cursor_data_path = "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb"
 ```
 
 ## How it works
 
-crux parses the JSONL session logs that Claude Code writes to `~/.claude/projects/`. Each API call includes token counts (input, output, cache read, cache write) and model info. crux aggregates these into session-level analytics, detects context window compactions, calculates efficiency metrics, and renders everything in a ratatui-powered TUI.
+**Claude Code:** crux parses the JSONL session logs that Claude Code writes to `~/.claude/projects/`. Each API call includes token counts (input, output, cache read, cache write) and model info.
+
+**Cursor:** crux reads Cursor's SQLite database at `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, extracting session metadata and per-message token counts across all models (Claude, GPT, Grok, Gemini, etc.).
+
+Both sources feed into the same analytics pipeline. crux aggregates into session-level analytics, detects context window compactions, calculates efficiency metrics, and renders everything in a ratatui-powered TUI.
 
 Key metrics:
 - **Context growth factor** - how much your context window expanded from start to current

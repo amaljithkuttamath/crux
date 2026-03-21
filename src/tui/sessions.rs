@@ -230,10 +230,17 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
         let name_w = (w as usize).saturating_sub(70).max(8);
         let topic = truncate(&session.first_message, name_w);
 
+        // Source badge
+        let source_badge = match session.source {
+            crate::parser::Source::ClaudeCode => ("CC", ACCENT),
+            crate::parser::Source::Cursor => ("Cu", Color::Rgb(100, 180, 220)),
+        };
+
         // Line 1: time, topic, cost, grade, context indicator
         lines.push(Line::from(vec![
             Span::styled(format!("  {}", cursor_char), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
             Span::styled(ctx_indicator.0, Style::default().fg(ctx_indicator.1)),
+            Span::styled(format!(" {}", source_badge.0), Style::default().fg(source_badge.1)),
             Span::styled(format!(" {} ", time_str), Style::default().fg(fg_sub)),
             Span::styled(format!("{:<width$}", topic, width = name_w), Style::default().fg(fg_main)),
             Span::styled(format!(" {:>4}", dur_str), Style::default().fg(fg_sub)),
