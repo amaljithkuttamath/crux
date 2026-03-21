@@ -209,8 +209,10 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
             else if ctx_pct > 60.0 { ("\u{25d0}", YELLOW) }
             else { ("\u{25cb}", FG_FAINT) };
 
+        let tool_calls: usize = session.tool_counts.values().sum();
+        let tool_heavy = tool_calls as f64 / session.message_count.max(1) as f64 > 0.5;
         let type_badge = if session.agent_spawns > 2 { "agt" }
-            else if { let tc: usize = session.tool_counts.values().sum(); tc as f64 / session.message_count.max(1) as f64 > 0.5 } { "tool" }
+            else if tool_heavy { "tool" }
             else { "chat" };
 
         let grade = analysis.as_ref().map(|a| a.grade_letter()).unwrap_or("-");

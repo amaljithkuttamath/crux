@@ -214,29 +214,25 @@ impl App {
 
         if let Some(cursor_path) = self.config.cursor_db_path() {
             if let Some(path_str) = cursor_path.to_str() {
-                match parser::cursor::parse_cursor_db(path_str) {
-                    Ok((records, metas)) => {
-                        // Collect existing cursor session IDs
-                        let existing: std::collections::HashSet<String> = self.store.cursor_sessions()
-                            .iter()
-                            .map(|s| s.session_id.clone())
-                            .collect();
+                if let Ok((records, metas)) = parser::cursor::parse_cursor_db(path_str) {
+                    let existing: std::collections::HashSet<String> = self.store.cursor_sessions()
+                        .iter()
+                        .map(|s| s.session_id.clone())
+                        .collect();
 
-                        for r in records {
-                            if !self.config.is_excluded(&r.project) {
-                                self.store.add(r);
-                            }
-                        }
-                        for m in metas {
-                            if m.user_count > 0
-                                && !self.config.is_excluded(&m.project)
-                                && !existing.contains(&m.session_id)
-                            {
-                                self.store.add_session_meta(m);
-                            }
+                    for r in records {
+                        if !self.config.is_excluded(&r.project) {
+                            self.store.add(r);
                         }
                     }
-                    Err(_) => {}
+                    for m in metas {
+                        if m.user_count > 0
+                            && !self.config.is_excluded(&m.project)
+                            && !existing.contains(&m.session_id)
+                        {
+                            self.store.add_session_meta(m);
+                        }
+                    }
                 }
             }
         }

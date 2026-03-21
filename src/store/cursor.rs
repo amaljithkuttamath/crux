@@ -47,7 +47,7 @@ pub struct CursorOverviewStats {
     pub this_week_cost: f64,
 }
 
-pub fn cursor_sessions<'a>(session_metas: &'a [SessionMeta]) -> Vec<&'a SessionMeta> {
+pub fn cursor_sessions(session_metas: &[SessionMeta]) -> Vec<&SessionMeta> {
     let mut sessions: Vec<&SessionMeta> = session_metas.iter()
         .filter(|s| s.source == Source::Cursor)
         .collect();

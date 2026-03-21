@@ -202,8 +202,10 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             let dur = meta.duration_minutes();
             let dur_str = if dur >= 60 { format!("{}h{:02}m", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
 
+            let tool_calls: usize = meta.tool_counts.values().sum();
+            let tool_heavy = tool_calls as f64 / meta.message_count.max(1) as f64 > 0.5;
             let badge = if meta.agent_spawns > 2 { ("agentic", PURPLE) }
-                else if { let tc: usize = meta.tool_counts.values().sum(); tc as f64 / meta.message_count.max(1) as f64 > 0.5 } { ("tools", FG_FAINT) }
+                else if tool_heavy { ("tools", FG_FAINT) }
                 else { ("chat", FG_FAINT) };
 
             let source_badge = match meta.source {

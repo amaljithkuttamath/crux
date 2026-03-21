@@ -123,7 +123,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
         Span::styled("   completion ", Style::default().fg(FG_FAINT)),
         Span::styled(format!("{:.0}%", stats.completion_rate), Style::default().fg(completion_c).bold()),
         Span::styled("   lines shipped ", Style::default().fg(FG_FAINT)),
-        Span::styled(format!("{}", compact(stats.total_lines)), Style::default().fg(FG).bold()),
+        Span::styled(compact(stats.total_lines), Style::default().fg(FG).bold()),
         Span::styled("   avg ctx ", Style::default().fg(FG_FAINT)),
         Span::styled(format!("{:.0}%", stats.avg_context_fill), Style::default().fg(ctx_c).bold()),
         Span::styled("   agent mode ", Style::default().fg(FG_FAINT)),
