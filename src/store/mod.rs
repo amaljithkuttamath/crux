@@ -403,8 +403,8 @@ impl Store {
 
         let metas = &self.session_metas;
         result.sort_by(|a, b| {
-            let a_time = metas.iter().find(|s| s.session_id == a.sessions[0]).map(|s| s.start_time);
-            let b_time = metas.iter().find(|s| s.session_id == b.sessions[0]).map(|s| s.start_time);
+            let a_time = a.sessions.first().and_then(|id| metas.iter().find(|s| &s.session_id == id)).map(|s| s.start_time);
+            let b_time = b.sessions.first().and_then(|id| metas.iter().find(|s| &s.session_id == id)).map(|s| s.start_time);
             b_time.cmp(&a_time)
         });
         result

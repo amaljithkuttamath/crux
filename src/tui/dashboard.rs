@@ -204,10 +204,9 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     let mut seen_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in store.records_iter() {
         if r.timestamp.date_naive() == today_date {
-            let (display, _) = model_display(&r.model);
+            let (display, sym) = model_display(&r.model);
             if seen_set.insert(display.clone()) {
-                let (d, s) = model_display(&r.model);
-                seen_models.push((d, s));
+                seen_models.push((display, sym));
             }
         }
     }
