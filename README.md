@@ -8,10 +8,11 @@ A terminal dashboard for understanding your AI coding sessions. Built for Claude
 
 crux reads session data from Claude Code (JSONL logs) and Cursor IDE (SQLite database) and gives you a live, interactive terminal dashboard with:
 
-- **Active sessions** with real-time context window fill, cache hit rate, efficiency grades (A-F), and compaction detection
-- **Session timeline** drill-down showing context growth, cost spikes, and notable events
-- **Daily/weekly trends** with token volume bar charts and model breakdowns
-- **Session browser** with full conversation replay
+- **Overview** with ticker bar (cost, burn rate, 7d sparkline, streak), active session health with context trajectory sparklines, and split Claude Code / Cursor panes
+- **Claude Code view** with daily cost bars, model breakdown (opus/sonnet/haiku), date-grouped session list with context sparklines and efficiency grades
+- **Cursor view** with model comparison bars, session list with mode badges and line counts, session detail with todo display
+- **History view** with 30-day cumulative trend, CC vs Cursor source split, daily cost table, and model breakdown
+- **Session drill-down** with context timeline, cost sparkline, conversation replay, and cost breakdown
 - **MCP server** exposing 5 analysis tools for session health, cost breakdown, and restart recommendations
 
 ## Install
@@ -27,10 +28,6 @@ brew install amaljithkuttamath/tap/crux
 ```bash
 cargo install crux-tokens
 ```
-
-### From release binaries
-
-Download the latest binary for your platform from [Releases](https://github.com/amaljithkuttamath/crux/releases).
 
 ### From source
 
@@ -49,35 +46,36 @@ cargo build --release
 crux
 ```
 
-The dashboard has three views:
+The dashboard has four views:
 
 | View | Key | What it shows |
 |------|-----|---------------|
-| **Dashboard** | (default) | Active sessions, project breakdown, efficiency grades |
-| **History** | `h` | Daily/weekly token trends, model usage over time |
-| **Sessions** | `s` | Browse all sessions, drill into conversation replay |
+| **Overview** | (default) | Ticker bar, active sessions with health, split CC/Cursor panes |
+| **Claude Code** | `d` | Daily cost bars, model breakdown, all CC sessions with grades |
+| **Cursor** | `c` | Model comparison, unified session list with mode/status/lines |
+| **History** | `h` | Cumulative trend, source split, daily costs, model breakdown |
 
 ### Navigation
 
 | Key | Action |
 |-----|--------|
-| `h` | Switch to History view |
-| `s` | Switch to Sessions view |
-| `Tab` | Toggle focus between active sessions and projects (Dashboard) |
-| `Enter` | Drill into session detail / context timeline |
+| `d` | Claude Code view |
+| `c` | Cursor view |
+| `h` | History view |
+| `Tab` | Switch pane focus (Overview) |
+| `Enter` | Drill into session detail |
 | `Esc` | Back to previous view |
 | `j` / `k` | Scroll down / up |
 | `q` | Quit |
 
 ### CLI commands
 
-For quick lookups without the TUI:
-
 ```bash
-crux summary     # today's totals, one line
-crux daily       # last 7 days table
-crux project     # per-project breakdown
-crux session     # list sessions with token counts
+crux summary     # today's cost across both tools with breakdown
+crux daily       # last 7 days with cost, tokens, sessions
+crux project     # per-project breakdown with clean names
+crux session     # list 30 most recent sessions with grade and source
+crux health      # active session health for scripting (FRESH/OK/AGING/CRITICAL)
 ```
 
 ### MCP server
@@ -121,9 +119,6 @@ budget_weekly = 25.00
 # Exclude projects from tracking
 exclude_projects = ["test-project"]
 
-# Insights sparkline range
-insights_sparkline_days = 14
-
 # Cursor IDE (auto-detected, enabled by default)
 enable_cursor = true
 # cursor_data_path = "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb"
@@ -131,9 +126,9 @@ enable_cursor = true
 
 ## How it works
 
-**Claude Code:** crux parses the JSONL session logs that Claude Code writes to `~/.claude/projects/`. Each API call includes token counts (input, output, cache read, cache write) and model info.
+**Claude Code:** crux parses the JSONL session logs that Claude Code writes to `~/.claude/projects/`. Each API call includes token counts (input, output, cache read, cache write) and model info. A file watcher detects new records in real time.
 
-**Cursor:** crux reads Cursor's SQLite database at `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, extracting session metadata and per-message token counts across all models (Claude, GPT, Grok, Gemini, etc.).
+**Cursor:** crux reads Cursor's SQLite database at `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, extracting session metadata, per-message token counts, completion status, lines shipped, and context fill across all models. Refreshes every 30 seconds.
 
 Both sources feed into the same analytics pipeline. crux aggregates into session-level analytics, detects context window compactions, calculates efficiency metrics, and renders everything in a ratatui-powered TUI.
 
@@ -143,6 +138,7 @@ Key metrics:
 - **Output efficiency** - ratio of useful output to total context processed
 - **Context growth premium** - extra cost from expanding context vs. starting fresh
 - **Efficiency grade** - A-F composite score based on growth, efficiency, and cost
+- **Session health** - FRESH/OK/AGING/CRITICAL based on context fill and growth trajectory
 
 ## License
 
