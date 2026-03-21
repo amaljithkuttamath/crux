@@ -147,6 +147,75 @@ pub fn month_abbrev(month: u32) -> &'static str {
     }
 }
 
+/// Returns (display_name, symbol) for a raw model string.
+/// "claude-opus-4-6" -> ("opus 4.6", "◆")
+/// "claude-sonnet-4-6" -> ("sonnet 4.6", "◇")
+/// "claude-haiku-4-5-20251001" -> ("haiku 4.5", "○")
+/// Non-Anthropic models: strip provider prefix, use "○".
+pub fn model_display(raw: &str) -> (String, &'static str) {
+    let lower = raw.to_lowercase();
+    if lower.contains("opus") {
+        let version = extract_model_version(raw);
+        (format!("opus {version}"), "\u{25c6}")
+    } else if lower.contains("sonnet") {
+        let version = extract_model_version(raw);
+        (format!("sonnet {version}"), "\u{25c7}")
+    } else if lower.contains("haiku") {
+        let version = extract_model_version(raw);
+        (format!("haiku {version}"), "\u{25cb}")
+    } else {
+        let cleaned = raw
+            .replace("openai/", "")
+            .replace("google/", "")
+            .replace("anthropic/", "");
+        (cleaned, "\u{25cb}")
+    }
+}
+
+/// Returns just the symbol for a raw model string.
+pub fn model_symbol(raw: &str) -> &'static str {
+    model_display(raw).1
+}
+
+/// Extract version like "4.6" from "claude-opus-4-6" or "claude-haiku-4-5-20251001".
+fn extract_model_version(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    let after_family = if let Some(i) = lower.find("opus") {
+        &raw[i + 4..]
+    } else if let Some(i) = lower.find("sonnet") {
+        &raw[i + 6..]
+    } else if let Some(i) = lower.find("haiku") {
+        &raw[i + 5..]
+    } else {
+        return String::new();
+    };
+    let parts: Vec<&str> = after_family.split('-').filter(|s| !s.is_empty()).collect();
+    if parts.len() >= 2 {
+        let major = parts[0];
+        let minor = parts[1];
+        if minor.len() <= 2 {
+            format!("{major}.{minor}")
+        } else {
+            major.to_string()
+        }
+    } else if parts.len() == 1 {
+        parts[0].to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Soft dashed divider for zone breaks: "─ ─ ─ ─"
+pub fn dashed_divider(width: u16) -> Line<'static> {
+    let pattern = "\u{2500} ";
+    let repeats = (width as usize) / 2;
+    let s: String = pattern.repeat(repeats);
+    Line::from(Span::styled(
+        format!("   {}", &s[..s.len().min(width.saturating_sub(3) as usize)]),
+        Style::default().fg(FG_FAINT),
+    ))
+}
+
 /// Clean project name for display
 pub fn display_project_name(raw: &str) -> String {
     let mut name = raw.to_string();
