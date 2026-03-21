@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::parser::Source;
-use crate::parser::conversation::{SessionStatus, SessionMode};
 use crate::pricing;
 use crate::store::{Store, SessionTimeline};
 use super::widgets::*;
@@ -8,22 +7,22 @@ use chrono::Timelike;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-#[derive(PartialEq, Clone, Copy, Default)]
-pub enum FocusZone {
-    #[default]
-    ActiveSessions,
-    CcPane,
-    CuPane,
+#[derive(PartialEq, Clone, Copy)]
+pub enum FocusZone { ActiveSessions, Projects }
+
+impl Default for FocusZone {
+    fn default() -> Self { FocusZone::Projects }
 }
 
 #[derive(Default)]
 pub struct DashboardState {
     pub focus: FocusZone,
     pub active_cursor: usize,
-    pub cc_cursor: usize,
-    pub cu_cursor: usize,
+    pub project_cursor: usize,
+    pub project_scroll: usize,
     pub detail: Option<SessionDetailView>,
-    cached_active_ids: Vec<String>,
+    pub cached_active_ids: Vec<String>,
+    pub cached_project_ids: Vec<String>,
 }
 
 pub struct SessionDetailView {
@@ -34,49 +33,64 @@ pub struct SessionDetailView {
 
 impl DashboardState {
     pub fn move_up(&mut self) {
-        if let Some(ref mut detail) = self.detail {
-            detail.scroll = detail.scroll.saturating_sub(1);
-            return;
-        }
-        match self.focus {
-            FocusZone::ActiveSessions => { self.active_cursor = self.active_cursor.saturating_sub(1); }
-            FocusZone::CcPane => { self.cc_cursor = self.cc_cursor.saturating_sub(1); }
-            FocusZone::CuPane => { self.cu_cursor = self.cu_cursor.saturating_sub(1); }
-        }
-    }
-
-    pub fn move_down(&mut self, active_count: usize, _project_count: usize) {
-        if let Some(ref mut detail) = self.detail {
-            detail.scroll += 1;
+        if let Some(ref mut d) = self.detail {
+            d.scroll = d.scroll.saturating_sub(1);
             return;
         }
         match self.focus {
             FocusZone::ActiveSessions => {
-                if active_count > 0 && self.active_cursor + 1 < active_count { self.active_cursor += 1; }
+                self.active_cursor = self.active_cursor.saturating_sub(1);
             }
-            FocusZone::CcPane => { self.cc_cursor += 1; }
-            FocusZone::CuPane => { self.cu_cursor += 1; }
+            FocusZone::Projects => {
+                self.project_cursor = self.project_cursor.saturating_sub(1);
+                if self.project_cursor < self.project_scroll {
+                    self.project_scroll = self.project_cursor;
+                }
+            }
+        }
+    }
+
+    pub fn move_down(&mut self, active_count: usize, _project_count: usize) {
+        if let Some(ref mut d) = self.detail {
+            d.scroll += 1;
+            return;
+        }
+        match self.focus {
+            FocusZone::ActiveSessions => {
+                if active_count > 0 && self.active_cursor + 1 < active_count {
+                    self.active_cursor += 1;
+                }
+            }
+            FocusZone::Projects => {
+                if !self.cached_project_ids.is_empty()
+                    && self.project_cursor + 1 < self.cached_project_ids.len()
+                {
+                    self.project_cursor += 1;
+                }
+            }
         }
     }
 
     pub fn switch_focus(&mut self, active_count: usize) {
         if self.detail.is_some() { return; }
-        self.focus = match self.focus {
-            FocusZone::ActiveSessions => FocusZone::CcPane,
-            FocusZone::CcPane => FocusZone::CuPane,
-            FocusZone::CuPane => {
-                if active_count > 0 { FocusZone::ActiveSessions } else { FocusZone::CcPane }
+        match self.focus {
+            FocusZone::ActiveSessions => { self.focus = FocusZone::Projects; }
+            FocusZone::Projects => {
+                if active_count > 0 { self.focus = FocusZone::ActiveSessions; }
             }
-        };
+        }
     }
 
     pub fn enter(&mut self, store: &Store) {
         if self.detail.is_some() { return; }
-        if self.focus != FocusZone::ActiveSessions { return; }
-        if let Some(session_id) = self.cached_active_ids.get(self.active_cursor) {
-            if let Some(timeline) = store.session_timeline(session_id) {
+        let session_id = match self.focus {
+            FocusZone::ActiveSessions => self.cached_active_ids.get(self.active_cursor).cloned(),
+            FocusZone::Projects => self.cached_project_ids.get(self.project_cursor).cloned(),
+        };
+        if let Some(id) = session_id {
+            if let Some(timeline) = store.session_timeline(&id) {
                 self.detail = Some(SessionDetailView {
-                    session_id: session_id.clone(),
+                    session_id: id,
                     timeline,
                     scroll: 0,
                 });
@@ -98,47 +112,57 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state:
 }
 
 // ════════════════════════════════════════════════════════════════════════
-//  Overview: ticker + active sessions + split CC/Cursor panes
+//  Overview: ticker + live sessions + project groups
 // ════════════════════════════════════════════════════════════════════════
 
 fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut DashboardState) {
     let area = frame.area();
     let w = area.width;
 
-    let active = store.active_sessions(24);
-    let active_count = active.len();
-    state.cached_active_ids = active.iter().map(|(m, _)| m.session_id.clone()).collect();
-
     let today = store.today();
     let yesterday = store.yesterday();
     let week = store.this_week();
-    // Active zone: ~4 lines per session + header, capped
-    let active_height = if active_count > 0 {
-        (active_count as u16 * 4 + 1).min(14)
-    } else { 1 };
+
+    let active = store.active_sessions(24);
+    state.cached_active_ids = active.iter().map(|(m, _)| m.session_id.clone()).collect();
+
+    let project_groups = store.today_by_project();
+    state.cached_project_ids = project_groups.iter()
+        .flat_map(|g| g.sessions.iter().cloned())
+        .collect();
+
+    if !state.cached_active_ids.is_empty() {
+        state.active_cursor = state.active_cursor.min(state.cached_active_ids.len() - 1);
+    }
+    if !state.cached_project_ids.is_empty() {
+        state.project_cursor = state.project_cursor.min(state.cached_project_ids.len() - 1);
+    }
+
+    let active_lines = if active.is_empty() { 1u16 } else { 1 + active.len() as u16 };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(1),              // ticker
-            Constraint::Length(1),              // divider
-            Constraint::Length(active_height),  // active sessions
-            Constraint::Length(1),              // divider
-            Constraint::Min(6),                // split panes
-            Constraint::Length(1),              // divider
-            Constraint::Length(1),              // help
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(active_lines),
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
         ])
         .split(area);
 
-    // ── Ticker bar ──
-    let today_delta = if yesterday.cost > 0.0 {
+    // Zone 1: Ticker
+    let delta_pct = if yesterday.cost > 0.0 {
         ((today.cost - yesterday.cost) / yesterday.cost * 100.0) as i64
     } else { 0 };
-    let delta_str = if today_delta > 0 { format!("+{}%", today_delta) }
-        else if today_delta < 0 { format!("{}%", today_delta) }
-        else { "flat".to_string() };
-    let delta_color = if today_delta > 50 { RED } else if today_delta > 20 { YELLOW } else { FG_FAINT };
+    let delta_color = if delta_pct.unsigned_abs() > 50 { RED }
+        else if delta_pct.unsigned_abs() > 20 { YELLOW }
+        else { FG_FAINT };
 
     let hours_elapsed = {
         let now = chrono::Utc::now();
@@ -146,321 +170,232 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     };
     let burn_rate = today.cost / hours_elapsed;
 
-    let sessions_spark = store.sessions_per_day(7);
-    let spark_str = spark(&sessions_spark);
+    let spark_data = store.sessions_per_day(7);
+    let spark_str = spark(&spark_data);
     let streak = store.streak_days();
 
-    let right_info = format!(
-        "{}  {}  {}/hr  {} 7d  streak {}d",
-        pricing::format_cost(today.cost),
-        delta_str,
-        pricing::format_cost(burn_rate),
-        spark_str,
-        streak,
-    );
-    let pad = (w as usize).saturating_sub(8 + right_info.len()).max(1);
+    let cache_rate = store.today_cache_rate();
+    let waste = store.today_waste();
+    let waste_pct = if today.cost > 0.0 { waste / today.cost } else { 0.0 };
+    let waste_color = if waste_pct > 0.20 { RED }
+        else if waste_pct > 0.10 { YELLOW }
+        else { FG_FAINT };
 
-    let title = Line::from(vec![
+    let ticker = Line::from(vec![
         Span::styled("   crux", Style::default().fg(ACCENT).bold()),
-        Span::styled(" ".repeat(pad), Style::default()),
-        Span::styled(pricing::format_cost(today.cost), Style::default().fg(FG).bold()),
-        Span::styled("  ", Style::default()),
-        Span::styled(delta_str, Style::default().fg(delta_color)),
-        Span::styled("  ", Style::default()),
-        Span::styled(format!("{}/hr", pricing::format_cost(burn_rate)), Style::default().fg(FG_FAINT)),
+        Span::styled(format!("  {}", pricing::format_cost(today.cost)), Style::default().fg(FG).bold()),
+        Span::styled(format!(" {:+}%", delta_pct), Style::default().fg(delta_color)),
+        Span::styled(format!("  {}/hr", pricing::format_cost(burn_rate)), Style::default().fg(FG_FAINT)),
         Span::styled("  ", Style::default()),
         Span::styled(spark_str, Style::default().fg(ACCENT)),
-        Span::styled(" 7d  ", Style::default().fg(FG_FAINT)),
-        Span::styled(format!("streak {}d", streak), Style::default().fg(ACCENT)),
+        Span::styled(" 7d", Style::default().fg(FG_FAINT)),
+        Span::styled(format!("  streak {}d", streak), Style::default().fg(ACCENT)),
+        Span::styled("      ", Style::default()),
+        Span::styled(format!("cache {:.0}%", cache_rate * 100.0), Style::default().fg(FG_MUTED)),
+        Span::styled(format!("  waste {}", pricing::format_cost(waste)), Style::default().fg(waste_color)),
         budget_span(config, &today, &week),
     ]);
-    frame.render_widget(Paragraph::new(title), chunks[0]);
+    frame.render_widget(Paragraph::new(ticker), chunks[0]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[1]);
 
-    // ── Active Sessions ──
-    if active_count > 0 {
-        let mut lines: Vec<Line> = vec![
-            Line::from(vec![
-                Span::styled("   LIVE", Style::default().fg(GREEN).bold()),
-                Span::styled(
-                    format!("  {}", if active_count == 1 { "1 session".to_string() } else { format!("{} sessions", active_count) }),
-                    Style::default().fg(FG_FAINT),
-                ),
-            ]),
-        ];
+    // Legend bar
+    let today_date = chrono::Utc::now().date_naive();
+    let mut seen_models: Vec<(String, &'static str)> = Vec::new();
+    let mut seen_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for r in store.records_iter() {
+        if r.timestamp.date_naive() == today_date {
+            let (display, _) = model_display(&r.model);
+            if seen_set.insert(display.clone()) {
+                let (d, s) = model_display(&r.model);
+                seen_models.push((d, s));
+            }
+        }
+    }
 
-        for (i, (meta, analysis)) in active.iter().take(3).enumerate() {
-            let is_selected = state.focus == FocusZone::ActiveSessions && i == state.active_cursor;
-            let cost = analysis.total_cost;
-            let ctx_pct = (analysis.context_current as f64 / 167_000.0 * 100.0).min(100.0);
-            let bar_color = if ctx_pct > 85.0 { RED } else if ctx_pct > 60.0 { YELLOW } else { GREEN };
+    let mut legend_spans: Vec<Span> = vec![Span::styled("   ", Style::default())];
+    for (display, sym) in &seen_models {
+        let sym_color = if *sym == "\u{25c6}" { PURPLE }
+            else if *sym == "\u{25c7}" { ACCENT }
+            else { ACCENT2 };
+        legend_spans.push(Span::styled(*sym, Style::default().fg(sym_color)));
+        legend_spans.push(Span::styled(format!(" {display}  "), Style::default().fg(FG_MUTED)));
+    }
+    legend_spans.push(Span::styled("         ", Style::default()));
+    legend_spans.push(Span::styled("A", Style::default().fg(GREEN)));
+    legend_spans.push(Span::styled(" ", Style::default()));
+    legend_spans.push(Span::styled("B", Style::default().fg(ACCENT)));
+    legend_spans.push(Span::styled(" ", Style::default()));
+    legend_spans.push(Span::styled("C", Style::default().fg(YELLOW)));
+    legend_spans.push(Span::styled(" ", Style::default()));
+    legend_spans.push(Span::styled("D", Style::default().fg(RED)));
+    legend_spans.push(Span::styled("    ", Style::default()));
+    legend_spans.push(Span::styled("\u{25cf}", Style::default().fg(ACCENT2)));
+    legend_spans.push(Span::styled(" cc  ", Style::default().fg(FG_MUTED)));
+    legend_spans.push(Span::styled("\u{25cf}", Style::default().fg(BLUE)));
+    legend_spans.push(Span::styled(" cursor", Style::default().fg(FG_MUTED)));
+    frame.render_widget(Paragraph::new(Line::from(legend_spans)), chunks[2]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
-            let cursor_char = if is_selected { "\u{25b8}" } else { " " };
-            let fg = if is_selected { FG } else { FG_MUTED };
-            let cost_fg = if is_selected { ACCENT } else { FG_MUTED };
+    // Zone 2: LIVE
+    let is_active_focused = matches!(state.focus, FocusZone::ActiveSessions);
+    let mut live_lines: Vec<Line> = Vec::new();
 
+    if active.is_empty() {
+        live_lines.push(Line::from(Span::styled(
+            "   LIVE  no active sessions", Style::default().fg(FG_FAINT),
+        )));
+    } else {
+        live_lines.push(Line::from(vec![
+            Span::styled("   LIVE", Style::default().fg(GREEN).bold()),
+            Span::styled(format!("  {} sessions", active.len()), Style::default().fg(FG_FAINT)),
+        ]));
+
+        for (i, (meta, analysis)) in active.iter().enumerate() {
+            let selected = is_active_focused && i == state.active_cursor;
+            let source_color = if meta.source == Source::ClaudeCode { ACCENT2 } else { BLUE };
+            let raw_model = store.session_model(&meta.session_id);
+            let sym = model_symbol(&raw_model);
+            let sym_color = if sym == "\u{25c6}" { PURPLE } else if sym == "\u{25c7}" { ACCENT } else { ACCENT2 };
+
+            let topic = truncate(&meta.first_message, 20);
             let dur = meta.duration_minutes();
-            let dur_str = if dur >= 60 { format!("{}h{:02}m", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
+            let dur_str = if dur >= 60 { format!("{}h{:02}", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
+            let cost_str = pricing::format_cost(analysis.total_cost);
 
-            let tool_calls: usize = meta.tool_counts.values().sum();
-            let tool_heavy = tool_calls as f64 / meta.message_count.max(1) as f64 > 0.5;
-            let badge = if meta.agent_spawns > 2 { ("agentic", PURPLE) }
-                else if tool_heavy { ("tools", FG_FAINT) }
-                else { ("chat", FG_FAINT) };
+            let ctx_pct = (analysis.context_current as f64 / 167_000.0 * 100.0).min(100.0);
+            let (bar_f, bar_e) = smooth_bar(ctx_pct, 100.0, 3);
+            let ctx_color = if ctx_pct > 85.0 { RED } else if ctx_pct > 60.0 { YELLOW } else { GREEN };
 
-            let source_badge = match meta.source {
-                Source::ClaudeCode => ("\u{25cf}", ACCENT2),
-                Source::Cursor => ("\u{25cf}", BLUE),
-            };
+            let grade = analysis.grade_letter();
+            let grade_color = match grade { "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED };
 
-            let name_w = (w as usize).saturating_sub(70).max(8);
-            let topic = truncate(&meta.first_message, name_w);
-            let project_name = display_project_name(&meta.project);
+            let mut tool_pairs: Vec<(&String, &usize)> = meta.tool_counts.iter().collect();
+            tool_pairs.sort_by(|a, b| b.1.cmp(a.1));
+            let tool_str: String = tool_pairs.iter().take(3)
+                .map(|(name, _)| shorten_tool(name))
+                .collect::<Vec<_>>()
+                .join(" ");
 
-            // Line 1: source + topic + metrics
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", cursor_char), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-                Span::styled(source_badge.0, Style::default().fg(source_badge.1)),
-                Span::styled(format!(" {:<width$}", topic, width = name_w), Style::default().fg(fg)),
-                Span::styled(format!(" {}", dur_str), Style::default().fg(FG_FAINT)),
-                Span::styled(format!("  {}", pricing::format_cost(cost)), Style::default().fg(cost_fg)),
-                Span::styled(format!("  {}t", meta.user_count), Style::default().fg(FG_FAINT)),
-                if meta.agent_spawns > 0 {
-                    Span::styled(format!("  {}ag", meta.agent_spawns), Style::default().fg(PURPLE))
-                } else { Span::raw("") },
-                Span::styled(format!("  {}", badge.0), Style::default().fg(badge.1)),
+            let cursor_char = if selected { "\u{25b8}" } else { " " };
+            let cost_color = if selected { ACCENT } else { FG_MUTED };
+
+            live_lines.push(Line::from(vec![
+                Span::styled(format!("  {cursor_char} "), Style::default().fg(if selected { ACCENT } else { FG_FAINT })),
+                Span::styled("\u{25cf}", Style::default().fg(source_color)),
+                Span::styled(format!(" {sym}"), Style::default().fg(sym_color)),
+                Span::styled(format!(" {topic:<20}"), Style::default().fg(if selected { FG } else { FG_MUTED })),
+                Span::styled(format!(" {:>5}", dur_str), Style::default().fg(FG_FAINT)),
+                Span::styled(format!("  {cost_str}"), Style::default().fg(cost_color)),
+                Span::styled(format!("  {bar_f}{bar_e}"), Style::default().fg(ctx_color)),
+                Span::styled(format!(" {:>3.0}%", ctx_pct), Style::default().fg(ctx_color)),
+                Span::styled(format!("  {grade}"), Style::default().fg(grade_color)),
+                Span::styled(format!("  {tool_str}"), Style::default().fg(FG_FAINT)),
             ]));
+        }
+    }
+    frame.render_widget(Paragraph::new(live_lines), chunks[4]);
+    frame.render_widget(Paragraph::new(dashed_divider(w)), chunks[5]);
 
-            // Line 2: context fill LineGauge (text-based since we can't nest widgets easily)
-            let bar_w = (w as usize).saturating_sub(40).max(10);
-            let (bar_f, bar_e) = smooth_bar(ctx_pct, 100.0, bar_w);
-            lines.push(Line::from(vec![
-                Span::styled("     ", Style::default()),
-                Span::styled(bar_f, Style::default().fg(bar_color)),
-                Span::styled(bar_e, Style::default().fg(FG_FAINT)),
-                Span::styled(format!(" {:.0}%", ctx_pct), Style::default().fg(bar_color).bold()),
-                Span::styled(format!("  {:.1}x", analysis.context_growth), Style::default().fg(FG_MUTED)),
-                Span::styled(format!("  cache {:.0}%", analysis.cache_hit_rate * 100.0), Style::default().fg(FG_FAINT)),
-                if analysis.compaction_count > 0 {
-                    Span::styled(format!("  {} compacted", analysis.compaction_count), Style::default().fg(YELLOW))
-                } else { Span::raw("") },
-            ]));
+    // Zone 3: Project groups
+    let is_project_focused = matches!(state.focus, FocusZone::Projects);
+    let project_area = chunks[6];
+    let visible_height = project_area.height as usize;
 
-            // Line 3: context trajectory sparkline (Braille-like using block chars)
-            if let Some(timeline) = store.session_timeline(&meta.session_id) {
-                let ctx_values: Vec<f64> = timeline.turns.iter().map(|t| t.context_pct).collect();
-                let ctx_spark = spark(&ctx_values);
-                let grade = analysis.grade_letter();
-                let grade_c = match grade {
-                    "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED,
-                };
-                lines.push(Line::from(vec![
-                    Span::styled("     ctx ", Style::default().fg(FG_FAINT)),
-                    Span::styled(ctx_spark, Style::default().fg(bar_color)),
-                    Span::styled(format!("  {} \u{2192} {}", compact(analysis.context_initial), compact(analysis.context_current)),
-                        Style::default().fg(FG_FAINT)),
-                    Span::styled(format!("  {}", grade), Style::default().fg(grade_c).bold()),
-                    Span::styled(format!("  {}", project_name), Style::default().fg(FG_FAINT)),
-                ]));
+    if project_groups.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "   no sessions today", Style::default().fg(FG_FAINT),
+            ))),
+            project_area,
+        );
+    } else {
+        let mut lines: Vec<Line> = Vec::new();
+        let mut line_to_session: Vec<Option<usize>> = Vec::new();
+        let mut flat_idx = 0usize;
+
+        for (gi, group) in project_groups.iter().enumerate() {
+            if gi > 0 {
+                lines.push(Line::default());
+                line_to_session.push(None);
             }
 
-            if i + 1 < active_count.min(3) {
-                lines.push(Line::from(Span::raw("")));
+            let display_name = display_project_name(&group.name);
+            let right = format!("{} \u{00b7} {} sess", pricing::format_cost(group.cost), group.sessions.len());
+            let pad = (w as usize).saturating_sub(display_name.len() + right.len() + 6).max(1);
+            let header = Line::from(vec![
+                Span::styled(format!("   {display_name}"), Style::default().fg(ACCENT).bold()),
+                Span::styled(" ".repeat(pad), Style::default()),
+                Span::styled(right, Style::default().fg(FG_MUTED)),
+            ]);
+            lines.push(header);
+            line_to_session.push(None);
+
+            for session_id in &group.sessions {
+                let meta = store.session_meta(session_id);
+                let analysis = store.analyze_session(session_id);
+
+                if let (Some(meta), Some(analysis)) = (meta, analysis) {
+                    let selected = is_project_focused && flat_idx == state.project_cursor;
+                    let source_color = if meta.source == Source::ClaudeCode { ACCENT2 } else { BLUE };
+                    let raw_model = store.session_model(session_id);
+                    let sym = model_symbol(&raw_model);
+                    let sym_color = if sym == "\u{25c6}" { PURPLE } else if sym == "\u{25c7}" { ACCENT } else { ACCENT2 };
+
+                    let topic = truncate(&meta.first_message, 20);
+                    let dur = meta.duration_minutes();
+                    let dur_str = if dur >= 60 { format!("{}h{:02}", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
+                    let cost_str = pricing::format_cost(analysis.total_cost);
+                    let ctx_pct = (analysis.context_current as f64 / 167_000.0 * 100.0).min(100.0);
+
+                    let grade = analysis.grade_letter();
+                    let grade_color = match grade { "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED };
+
+                    let cursor_char = if selected { "\u{25b8}" } else { " " };
+                    let cost_color = if selected { ACCENT } else { FG_MUTED };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("    {cursor_char} "), Style::default().fg(if selected { ACCENT } else { FG_FAINT })),
+                        Span::styled("\u{25cf}", Style::default().fg(source_color)),
+                        Span::styled(format!(" {sym}"), Style::default().fg(sym_color)),
+                        Span::styled(format!(" {topic:<20}"), Style::default().fg(if selected { FG } else { FG_MUTED })),
+                        Span::styled(format!(" {:>5}", dur_str), Style::default().fg(FG_FAINT)),
+                        Span::styled(format!("  {cost_str}"), Style::default().fg(cost_color)),
+                        Span::styled(format!("  {:>3.0}%", ctx_pct), Style::default().fg(FG_MUTED)),
+                        Span::styled(format!("  {grade}"), Style::default().fg(grade_color)),
+                    ]));
+                    line_to_session.push(Some(flat_idx));
+                }
+                flat_idx += 1;
             }
         }
 
-        frame.render_widget(Paragraph::new(lines), chunks[2]);
-    } else {
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("   no active sessions", Style::default().fg(FG_FAINT)),
-            ])),
-            chunks[2],
-        );
+        let cursor_line = line_to_session.iter()
+            .position(|idx| *idx == Some(state.project_cursor))
+            .unwrap_or(0);
+        if cursor_line < state.project_scroll {
+            state.project_scroll = cursor_line;
+        } else if cursor_line >= state.project_scroll + visible_height {
+            state.project_scroll = cursor_line.saturating_sub(visible_height) + 1;
+        }
+
+        let visible: Vec<Line> = lines.into_iter()
+            .skip(state.project_scroll)
+            .take(visible_height)
+            .collect();
+        frame.render_widget(Paragraph::new(visible), project_area);
     }
-    frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
-    // ── Split panes: CC left, Cursor right ──
-    let pane_area = chunks[4];
-    let panes = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(pane_area);
-
-    render_cc_pane(frame, store, state, panes[0]);
-    render_cu_pane(frame, store, state, panes[1]);
-
-    frame.render_widget(Paragraph::new(divider(w)), chunks[5]);
-
-    let help = help_bar(&[
+    // Bottom
+    frame.render_widget(Paragraph::new(divider(w)), chunks[7]);
+    frame.render_widget(Paragraph::new(help_bar(&[
         ("\u{2191}\u{2193}", "navigate"),
-        ("tab", "switch"),
+        ("tab", "zone"),
         ("enter", "detail"),
-        ("d", "claude code"),
+        ("d", "cc"),
         ("c", "cursor"),
         ("h", "history"),
         ("q", "quit"),
-    ]);
-    frame.render_widget(Paragraph::new(help), chunks[6]);
-}
-
-// ── Claude Code pane ──
-fn render_cc_pane(frame: &mut ratatui::Frame, store: &Store, state: &DashboardState, area: Rect) {
-    let is_focused = state.focus == FocusZone::CcPane;
-    let cc_today = store.today_by_source(Source::ClaudeCode);
-    let cc_sessions = store.today_sessions_by_source(Source::ClaudeCode);
-    let session_count = cc_sessions.len();
-
-    let border_style = if is_focused { Style::default().fg(ACCENT2) } else { Style::default().fg(FG_FAINT) };
-    let block = Block::default()
-        .title(Span::styled(" Claude Code ", Style::default().fg(ACCENT2).bold()))
-        .title_alignment(Alignment::Left)
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .border_type(BorderType::Rounded);
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let inner_w = inner.width as usize;
-    let max_rows = inner.height as usize;
-    let mut lines: Vec<Line> = Vec::new();
-
-    // Header: cost + session count
-    lines.push(Line::from(vec![
-        Span::styled(format!(" {}", pricing::format_cost(cc_today.cost)), Style::default().fg(FG).bold()),
-        Span::styled(format!("  {} sessions", session_count), Style::default().fg(FG_FAINT)),
-    ]));
-
-    // Session rows
-    for (i, session) in cc_sessions.iter().take(max_rows.saturating_sub(3)).enumerate() {
-        let analysis = store.analyze_session(&session.session_id);
-        let cost = analysis.as_ref().map(|a| a.total_cost).unwrap_or(0.0);
-        let ctx_pct = analysis.as_ref().map(|a| (a.context_current as f64 / 167_000.0 * 100.0).min(100.0)).unwrap_or(0.0);
-        let grade = analysis.as_ref().map(|a| a.grade_letter()).unwrap_or("-");
-
-        let dur = session.duration_minutes();
-        let dur_str = if dur >= 60 { format!("{}h{:02}", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
-
-        let ctx_color = if ctx_pct > 85.0 { RED } else if ctx_pct > 60.0 { YELLOW } else { GREEN };
-        let health_dot = "\u{25cf}";
-
-        // Context mini sparkline
-        let ctx_bar_w = 5;
-        let (bf, _be) = smooth_bar(ctx_pct, 100.0, ctx_bar_w);
-
-        let is_sel = is_focused && i == state.cc_cursor;
-        let fg = if is_sel { FG } else { FG_MUTED };
-        let name_w = inner_w.saturating_sub(35).max(6);
-        let topic = truncate(&session.first_message, name_w);
-
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {}", health_dot), Style::default().fg(ctx_color)),
-            Span::styled(format!(" {:<w$}", topic, w = name_w), Style::default().fg(fg)),
-            Span::styled(format!(" {:>4}", dur_str), Style::default().fg(FG_FAINT)),
-            Span::styled(format!(" {}", pricing::format_cost(cost)), Style::default().fg(if is_sel { ACCENT } else { FG_FAINT })),
-            Span::styled(format!(" {}", bf), Style::default().fg(ctx_color)),
-            Span::styled(format!("{:>3.0}%", ctx_pct), Style::default().fg(FG_FAINT)),
-            Span::styled(format!(" {}", grade), Style::default().fg(match grade { "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED })),
-        ]));
-    }
-
-    // KPI strip at bottom
-    let cache_pct = all_time_cache_denom(store).1;
-
-    if lines.len() < max_rows {
-        lines.push(Line::from(vec![
-            Span::styled(format!(" cache {:.0}%", cache_pct), Style::default().fg(if cache_pct > 60.0 { GREEN } else { YELLOW })),
-            Span::styled(format!("  {} total tok", compact(cc_today.total_tokens())), Style::default().fg(FG_FAINT)),
-        ]));
-    }
-
-    frame.render_widget(Paragraph::new(lines), inner);
-}
-
-fn all_time_cache_denom(store: &Store) -> (u64, f64) {
-    let all = store.all_time();
-    let denom = all.cache_read_tokens + all.input_tokens;
-    let pct = if denom > 0 { all.cache_read_tokens as f64 / denom as f64 * 100.0 } else { 0.0 };
-    (denom, pct)
-}
-
-// ── Cursor pane ──
-fn render_cu_pane(frame: &mut ratatui::Frame, store: &Store, state: &DashboardState, area: Rect) {
-    let is_focused = state.focus == FocusZone::CuPane;
-    let cu_sessions = store.today_sessions_by_source(Source::Cursor);
-    let cu_today = store.today_by_source(Source::Cursor);
-    let session_count = cu_sessions.len();
-
-    let border_style = if is_focused { Style::default().fg(BLUE) } else { Style::default().fg(FG_FAINT) };
-    let block = Block::default()
-        .title(Span::styled(" Cursor ", Style::default().fg(BLUE).bold()))
-        .title_alignment(Alignment::Left)
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .border_type(BorderType::Rounded);
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let inner_w = inner.width as usize;
-    let max_rows = inner.height as usize;
-    let mut lines: Vec<Line> = Vec::new();
-
-    lines.push(Line::from(vec![
-        Span::styled(format!(" {}", pricing::format_cost(cu_today.cost)), Style::default().fg(FG).bold()),
-        Span::styled(format!("  {} sessions", session_count), Style::default().fg(FG_FAINT)),
-    ]));
-
-    let stats = store.cursor_overview_stats();
-
-    for (i, session) in cu_sessions.iter().take(max_rows.saturating_sub(3)).enumerate() {
-        let (status_icon, status_color) = match session.cursor_status {
-            Some(SessionStatus::Completed) => ("\u{25cf}", GREEN),
-            Some(SessionStatus::Aborted) => ("\u{25cf}", RED),
-            _ => ("\u{25cb}", FG_FAINT),
-        };
-        let status_text = match session.cursor_status {
-            Some(SessionStatus::Completed) => "done",
-            Some(SessionStatus::Aborted) => "abort",
-            _ => "",
-        };
-        let mode_badge = match session.cursor_mode {
-            Some(SessionMode::Agent) => "agt",
-            Some(SessionMode::Chat) => "chat",
-            _ => "",
-        };
-
-        let dur = session.duration_minutes();
-        let dur_str = if dur >= 60 { format!("{}h{:02}", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
-
-        let lines_str = session.lines_added.map(|a| format!("+{}", a)).unwrap_or_default();
-
-        let is_sel = is_focused && i == state.cu_cursor;
-        let fg = if is_sel { FG } else { FG_MUTED };
-        let name_w = inner_w.saturating_sub(32).max(6);
-        let topic = truncate(&session.first_message, name_w);
-
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {}", status_icon), Style::default().fg(status_color)),
-            Span::styled(format!(" {:<w$}", topic, w = name_w), Style::default().fg(fg)),
-            Span::styled(format!(" {:<4}", mode_badge), Style::default().fg(if mode_badge == "agt" { PURPLE } else { FG_FAINT })),
-            Span::styled(format!("{:>4}", dur_str), Style::default().fg(FG_FAINT)),
-            Span::styled(format!(" {:<5}", status_text), Style::default().fg(status_color)),
-            Span::styled(format!("{:>6}", lines_str), Style::default().fg(FG_MUTED)),
-        ]));
-    }
-
-    // KPI strip
-    if lines.len() < max_rows {
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {:.0}% done", stats.completion_rate), Style::default().fg(if stats.completion_rate > 70.0 { GREEN } else { YELLOW })),
-            Span::styled(format!("  {} lines shipped", compact(stats.total_lines)), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {:.0}% agent", stats.agent_pct), Style::default().fg(PURPLE)),
-        ]));
-    }
-
-    frame.render_widget(Paragraph::new(lines), inner);
+    ])), chunks[8]);
 }
 
 // ════════════════════════════════════════════════════════════════════════
