@@ -82,7 +82,7 @@ impl App {
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
                         let active_count = self.store.active_sessions(24).len();
-                        let project_count = self.store.by_project().len();
+                        let project_count = self.dashboard_state.cached_project_ids.len();
                         self.dashboard_state.move_down(active_count, project_count);
                     }
                     KeyCode::Tab | KeyCode::BackTab => {
