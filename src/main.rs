@@ -32,6 +32,8 @@ enum Commands {
     Project,
     /// List sessions with token counts
     Session,
+    /// Active session health for scripting
+    Health,
     /// Run as MCP server over stdio
     Serve,
 }
@@ -47,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Daily) => print!("{}", cli::format_daily(&store, 7)),
         Some(Commands::Project) => print!("{}", cli::format_projects(&store)),
         Some(Commands::Session) => print!("{}", cli::format_sessions(&store)),
+        Some(Commands::Health) => print!("{}", cli::format_health(&store)),
         Some(Commands::Serve) => {
             let server = mcp::UsageServer::new(store, config);
             let service = server

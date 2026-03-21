@@ -1,12 +1,18 @@
 use ratatui::prelude::*;
 
-// Warm palette, high contrast
-pub const ACCENT: Color = Color::Rgb(210, 140, 90);    // bright copper
-pub const FG: Color = Color::Rgb(235, 230, 224);        // warm white
-pub const FG_MUTED: Color = Color::Rgb(170, 164, 155);  // readable gray
-pub const FG_FAINT: Color = Color::Rgb(110, 105, 98);   // subtle but visible
-pub const YELLOW: Color = Color::Rgb(230, 190, 90);      // warning
-pub const RED: Color = Color::Rgb(220, 100, 90);          // critical
+// ── Warm mineral palette ──
+// Inspired by sandstone, copper ore, and desert sky at dusk.
+// High contrast ratios against dark terminals, cohesive warmth.
+pub const ACCENT: Color = Color::Rgb(224, 155, 95);     // warm amber (headers, highlights, keys)
+pub const ACCENT2: Color = Color::Rgb(140, 180, 160);   // sage green (secondary accent, CC badge)
+pub const FG: Color = Color::Rgb(240, 234, 226);        // warm white (primary text)
+pub const FG_MUTED: Color = Color::Rgb(175, 168, 158);  // sandstone gray (secondary text)
+pub const FG_FAINT: Color = Color::Rgb(105, 100, 92);   // deep clay (borders, labels)
+pub const GREEN: Color = Color::Rgb(130, 195, 130);     // healthy green
+pub const YELLOW: Color = Color::Rgb(235, 195, 85);     // desert amber (warnings)
+pub const RED: Color = Color::Rgb(225, 95, 85);         // terracotta (critical)
+pub const BLUE: Color = Color::Rgb(120, 160, 210);      // sky blue (Cursor badge, charts)
+pub const PURPLE: Color = Color::Rgb(170, 140, 200);    // dusk violet (model highlights)
 
 pub fn compact(n: u64) -> String {
     if n >= 1_000_000_000 {
@@ -82,4 +88,84 @@ pub fn help_bar(bindings: &[(&str, &str)]) -> Line<'static> {
         spans.push(Span::styled(format!(" {}  ", label), Style::default().fg(FG_MUTED)));
     }
     Line::from(spans)
+}
+
+/// Truncate a string to max width, first line only
+pub fn truncate(s: &str, max: usize) -> String {
+    let first_line = s.lines().next().unwrap_or(s);
+    if first_line.len() > max {
+        format!("{}...", &first_line[..max.saturating_sub(3)])
+    } else {
+        first_line.to_string()
+    }
+}
+
+/// Truncate model name for compact display
+pub fn truncate_model(model: &str, max: usize) -> String {
+    let clean = model
+        .replace("claude-", "")
+        .replace("anthropic/", "")
+        .replace("openai/", "")
+        .replace("google/", "");
+    if clean.len() > max {
+        format!("{}...", &clean[..max.saturating_sub(3)])
+    } else {
+        clean
+    }
+}
+
+/// Shorten tool names for compact display
+pub fn shorten_tool(name: &str) -> String {
+    match name {
+        "Read" => "Rd".to_string(),
+        "Write" => "Wr".to_string(),
+        "Edit" => "Ed".to_string(),
+        "Bash" => "Sh".to_string(),
+        "Glob" => "Gl".to_string(),
+        "Grep" => "Gr".to_string(),
+        "Agent" => "Ag".to_string(),
+        "Skill" => "Sk".to_string(),
+        "WebFetch" => "WF".to_string(),
+        "WebSearch" => "WS".to_string(),
+        "NotebookEdit" => "NE".to_string(),
+        _ => {
+            if name.len() > 4 {
+                name[..4].to_string()
+            } else {
+                name.to_string()
+            }
+        }
+    }
+}
+
+pub fn month_abbrev(month: u32) -> &'static str {
+    match month {
+        1 => "JAN", 2 => "FEB", 3 => "MAR", 4 => "APR",
+        5 => "MAY", 6 => "JUN", 7 => "JUL", 8 => "AUG",
+        9 => "SEP", 10 => "OCT", 11 => "NOV", 12 => "DEC",
+        _ => "???",
+    }
+}
+
+/// Clean project name for display
+pub fn display_project_name(raw: &str) -> String {
+    let mut name = raw.to_string();
+    // Strip common prefixes
+    for prefix in &["lab-", "portfolio-", "site-", "archive-"] {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            name = rest.to_string();
+        }
+    }
+    // Clean up user path artifacts
+    if name.contains("-Users-") {
+        if let Some(idx) = name.find("-Developer-") {
+            name = name[idx + 11..].to_string();
+        } else if name.ends_with("-Developer") {
+            name = "Developer".to_string();
+        }
+    }
+    if name == "-private-tmp" || name == "private-tmp" {
+        name = "tmp".to_string();
+    }
+    name
 }

@@ -1,5 +1,5 @@
 use crate::parser::{Source, UsageRecord};
-use crate::parser::conversation::SessionMeta;
+use crate::parser::conversation::{SessionMeta, SessionStatus, SessionMode, CursorTodo};
 use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -39,7 +39,7 @@ pub fn parse_cursor_db(db_path: &str) -> anyhow::Result<(Vec<UsageRecord>, Vec<S
         let end_time = millis_to_datetime(last_updated);
 
         let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        let status_str = data.get("status").and_then(|v| v.as_str()).unwrap_or("none");
         let model_name = data.get("modelConfig")
             .and_then(|mc| mc.get("modelName"))
             .and_then(|v| v.as_str())
@@ -52,7 +52,44 @@ pub fn parse_cursor_db(db_path: &str) -> anyhow::Result<(Vec<UsageRecord>, Vec<S
             .unwrap_or(0);
 
         // Skip empty sessions
-        if headers == 0 && status == "none" { continue; }
+        if headers == 0 && status_str == "none" { continue; }
+
+        // Parse Cursor-specific fields
+        let cursor_status = match status_str {
+            "completed" => SessionStatus::Completed,
+            "aborted" => SessionStatus::Aborted,
+            _ => SessionStatus::None,
+        };
+
+        let cursor_mode = match data.get("unifiedMode").and_then(|v| v.as_str()).unwrap_or("") {
+            "agent" => SessionMode::Agent,
+            "chat" => SessionMode::Chat,
+            "plan" => SessionMode::Plan,
+            _ => SessionMode::Chat,
+        };
+
+        let lines_added = data.get("totalLinesAdded").and_then(|v| v.as_u64());
+        let lines_removed = data.get("totalLinesRemoved").and_then(|v| v.as_u64());
+        let files_changed = data.get("filesChangedCount").and_then(|v| v.as_u64());
+
+        let context_tokens_used = data.get("contextTokensUsed").and_then(|v| v.as_u64());
+        let context_token_limit = data.get("contextTokenLimit").and_then(|v| v.as_u64());
+        let context_usage_pct = data.get("contextUsagePercent").and_then(|v| v.as_f64());
+
+        let is_agentic = data.get("isAgentic").and_then(|v| v.as_bool());
+        let subagent_count = data.get("subagentComposerIds")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len());
+
+        let cursor_todos: Option<Vec<CursorTodo>> = data.get("todos")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter().filter_map(|t| {
+                    let content = t.get("content").and_then(|c| c.as_str())?.to_string();
+                    let completed = t.get("status").and_then(|s| s.as_str()) == Some("completed");
+                    Some(CursorTodo { content, completed })
+                }).collect()
+            });
 
         // Aggregate token counts from bubbles
         let (input_tokens, output_tokens, _bubble_count) = aggregate_bubbles(&conn, composer_id);
@@ -107,6 +144,17 @@ pub fn parse_cursor_db(db_path: &str) -> anyhow::Result<(Vec<UsageRecord>, Vec<S
             agent_spawns: 0,
             start_time,
             end_time,
+            cursor_status: Some(cursor_status),
+            cursor_mode: Some(cursor_mode),
+            lines_added,
+            lines_removed,
+            files_changed,
+            context_tokens_used,
+            context_token_limit,
+            context_usage_pct,
+            cursor_todos,
+            is_agentic,
+            subagent_count,
         });
     }
 

@@ -3,6 +3,26 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStatus {
+    Completed,
+    Aborted,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionMode {
+    Agent,
+    Chat,
+    Plan,
+}
+
+#[derive(Debug, Clone)]
+pub struct CursorTodo {
+    pub content: String,
+    pub completed: bool,
+}
+
 /// Lightweight session metadata, kept in memory for the session list.
 /// ~200 bytes per session. No conversation content stored.
 #[derive(Debug, Clone)]
@@ -21,6 +41,18 @@ pub struct SessionMeta {
     pub agent_spawns: usize,
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
+    // Cursor-specific fields (None for Claude Code sessions)
+    pub cursor_status: Option<SessionStatus>,
+    pub cursor_mode: Option<SessionMode>,
+    pub lines_added: Option<u64>,
+    pub lines_removed: Option<u64>,
+    pub files_changed: Option<u64>,
+    pub context_tokens_used: Option<u64>,
+    pub context_token_limit: Option<u64>,
+    pub context_usage_pct: Option<f64>,
+    pub cursor_todos: Option<Vec<CursorTodo>>,
+    pub is_agentic: Option<bool>,
+    pub subagent_count: Option<usize>,
 }
 
 impl SessionMeta {
@@ -123,6 +155,17 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         agent_spawns,
         start_time: start_time.unwrap_or(now),
         end_time: end_time.unwrap_or(now),
+        cursor_status: None,
+        cursor_mode: None,
+        lines_added: None,
+        lines_removed: None,
+        files_changed: None,
+        context_tokens_used: None,
+        context_token_limit: None,
+        context_usage_pct: None,
+        cursor_todos: None,
+        is_agentic: None,
+        subagent_count: None,
     })
 }
 
