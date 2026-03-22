@@ -216,6 +216,59 @@ pub fn dashed_divider(width: u16) -> Line<'static> {
     ))
 }
 
+/// Consistent 2-line navigation header for all views.
+/// active_view: "overview", "claude_code", "cursor", "history"
+pub fn nav_header(active_view: &str, width: u16) -> Vec<Line<'static>> {
+    let views: [(&str, &str, &str); 4] = [
+        ("O", "verview", "overview"),
+        ("D", " Claude Code", "claude_code"),
+        ("C", "ursor", "cursor"),
+        ("H", "istory", "history"),
+    ];
+
+    let mut spans: Vec<Span<'static>> = vec![Span::styled(" ", Style::default())];
+    for (key, label, id) in &views {
+        let is_active = *id == active_view;
+        spans.push(Span::styled(
+            format!(" [{}]", key),
+            Style::default().fg(if is_active { BLUE } else { FG_FAINT }),
+        ));
+        spans.push(Span::styled(
+            label.to_string(),
+            Style::default().fg(if is_active { FG } else { FG_MUTED }),
+        ));
+    }
+    let left_len: usize = spans.iter().map(|s| s.content.len()).sum();
+    let pad = (width as usize).saturating_sub(left_len + 16).max(1);
+    spans.push(Span::styled(" ".repeat(pad), Style::default()));
+    spans.push(Span::styled("? ", Style::default().fg(ACCENT)));
+    spans.push(Span::styled("help  ", Style::default().fg(FG_MUTED)));
+    spans.push(Span::styled("q ", Style::default().fg(ACCENT)));
+    spans.push(Span::styled("quit", Style::default().fg(FG_MUTED)));
+
+    vec![
+        Line::from(spans),
+        divider(width),
+    ]
+}
+
+/// Map HealthStatus to display color (lives in TUI layer, not store)
+pub fn health_color(status: &crate::store::analysis::HealthStatus) -> Color {
+    use crate::store::analysis::HealthStatus;
+    match status {
+        HealthStatus::Fresh | HealthStatus::Healthy => GREEN,
+        HealthStatus::Aging => YELLOW,
+        HealthStatus::CtxRot | HealthStatus::Aborted => RED,
+        HealthStatus::Done => FG_FAINT,
+    }
+}
+
+/// Dynamic model color assignment. Cycles through palette based on position.
+pub fn model_color(index: usize) -> Color {
+    const MODEL_COLORS: [Color; 3] = [PURPLE, ACCENT, ACCENT2];
+    MODEL_COLORS[index % MODEL_COLORS.len()]
+}
+
 /// Clean project name for display
 pub fn display_project_name(raw: &str) -> String {
     let mut name = raw.to_string();

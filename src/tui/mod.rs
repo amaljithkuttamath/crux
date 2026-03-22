@@ -1,4 +1,5 @@
 pub mod dashboard;
+pub mod help;
 pub mod history;
 pub mod sessions;
 pub mod widgets;
@@ -25,6 +26,7 @@ pub struct App {
     pub config: Config,
     pub view: View,
     pub should_quit: bool,
+    pub show_help: bool,
     pub dashboard_state: dashboard::DashboardState,
     pub sessions_state: sessions::SessionsState,
     pub cursor_state: cursor_view::CursorViewState,
@@ -45,6 +47,7 @@ impl App {
             config,
             view: View::Overview,
             should_quit: false,
+            show_help: false,
             dashboard_state: dashboard::DashboardState::default(),
             sessions_state: sessions::SessionsState::default(),
             cursor_state: cursor_view::CursorViewState::default(),
@@ -80,6 +83,16 @@ impl App {
     }
 
     fn handle_key(&mut self, code: KeyCode) {
+        // Help overlay takes priority
+        if self.show_help {
+            match code {
+                KeyCode::Char('?') | KeyCode::Esc => self.show_help = false,
+                KeyCode::Char('q') => self.should_quit = true,
+                _ => {}
+            }
+            return;
+        }
+
         match self.view {
             View::Overview => {
                 match code {
@@ -115,6 +128,7 @@ impl App {
                         self.cursor_state = cursor_view::CursorViewState::default();
                         self.view = View::Cursor;
                     }
+                    KeyCode::Char('?') => self.show_help = true,
                     _ => {}
                 }
             }
@@ -139,6 +153,10 @@ impl App {
                         self.cursor_state = cursor_view::CursorViewState::default();
                         self.view = View::Cursor;
                     }
+                    KeyCode::Char('o') if self.sessions_state.detail.is_none() => {
+                        self.view = View::Overview;
+                    }
+                    KeyCode::Char('?') => self.show_help = true,
                     _ => {}
                 }
             }
@@ -163,6 +181,10 @@ impl App {
                     KeyCode::Char('h') if self.cursor_state.detail.is_none() => {
                         self.scroll = 0; self.view = View::History;
                     }
+                    KeyCode::Char('o') if self.cursor_state.detail.is_none() => {
+                        self.view = View::Overview;
+                    }
+                    KeyCode::Char('?') => self.show_help = true,
                     _ => {}
                 }
             }
@@ -184,6 +206,11 @@ impl App {
                         self.cursor_state = cursor_view::CursorViewState::default();
                         self.view = View::Cursor;
                     }
+                    KeyCode::Char('o') => {
+                        self.scroll = 0;
+                        self.view = View::Overview;
+                    }
+                    KeyCode::Char('?') => self.show_help = true,
                     _ => {}
                 }
             }
@@ -196,6 +223,10 @@ impl App {
             View::History => history::render(frame, &self.store, &self.config, self.scroll),
             View::ClaudeCode => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state),
             View::Cursor => cursor_view::render(frame, &self.store, &self.config, &mut self.cursor_state),
+        }
+
+        if self.show_help {
+            help::render_help_overlay(frame);
         }
     }
 
