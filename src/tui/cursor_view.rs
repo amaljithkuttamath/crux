@@ -250,14 +250,17 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(vec![kpi_line1, model_line, spark_line]), chunks[3]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
-    // ── Column headers ──
+    // ── Column headers (aligned to row spans) ──
+    let name_w = (w as usize).saturating_sub(85).max(8);
     let col_header = Line::from(vec![
-        Span::styled("      SESSION", Style::default().fg(FG_FAINT)),
-        Span::styled(
-            format!("{} MODEL         DUR    COST  CTX    STATUS  AGE    MODE",
-                " ".repeat((w as usize).saturating_sub(85).max(1))),
-            Style::default().fg(FG_FAINT),
-        ),
+        Span::styled(format!("    {:<width$}", "SESSION", width = name_w), Style::default().fg(FG_FAINT)),
+        Span::styled(format!("  {:<12}", "MODEL"), Style::default().fg(FG_FAINT)),
+        Span::styled(format!(" {:>5}", "DUR"), Style::default().fg(FG_FAINT)),
+        Span::styled(format!("  {:>6}", "COST"), Style::default().fg(FG_FAINT)),
+        Span::styled("  CTX  ", Style::default().fg(FG_FAINT)),
+        Span::styled(format!("  {:<7}", "STATUS"), Style::default().fg(FG_FAINT)),
+        Span::styled(format!(" {:>6}", "AGE"), Style::default().fg(FG_FAINT)),
+        Span::styled("  MODE", Style::default().fg(FG_FAINT)),
     ]);
     frame.render_widget(Paragraph::new(col_header), chunks[5]);
 
@@ -338,7 +341,6 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
         let fg = if is_selected { FG } else { FG_MUTED };
         let cursor_char = if is_selected { "\u{25b8}" } else { " " };
-        let name_w = (w as usize).saturating_sub(85).max(8);
         let topic = truncate(&session.first_message, name_w);
 
         let mut row_spans = vec![
