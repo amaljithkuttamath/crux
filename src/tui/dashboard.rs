@@ -208,6 +208,17 @@ fn render_main(
         if cc_active > 0 {
             src_spans.push(Span::styled(format!("  {} active", cc_active), Style::default().fg(GREEN)));
         }
+        // Today's total compactions across CC sessions
+        let today_compactions: usize = cc_sessions.iter()
+            .filter_map(|s| store.analyze_session(&s.session_id))
+            .map(|a| a.compaction_count)
+            .sum();
+        if today_compactions > 0 {
+            src_spans.push(Span::styled(
+                format!("  {}c", today_compactions),
+                Style::default().fg(YELLOW),
+            ));
+        }
     }
     if has_cu {
         if has_cc { src_spans.push(Span::styled("          ", Style::default())); }
@@ -285,6 +296,13 @@ fn render_main(
                 format!("  {:<7}", status.label()),
                 Style::default().fg(health_color(&status)),
             ));
+            let compactions = ana.as_ref().map(|a| a.compaction_count).unwrap_or(0);
+            if compactions > 0 {
+                row_spans.push(Span::styled(
+                    format!(" {}c", compactions),
+                    Style::default().fg(YELLOW),
+                ));
+            }
             row_spans.push(Span::styled(format!(" {:>5}", age_str), Style::default().fg(FG_FAINT)));
 
             lines.push(Line::from(row_spans));
