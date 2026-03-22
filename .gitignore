@@ -4,3 +4,4 @@ docs/superpowers/specs/
 demo.*
 record_demo.*
 docs/
+.worktrees/
