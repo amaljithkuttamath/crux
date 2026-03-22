@@ -447,6 +447,51 @@ impl Store {
         cursor::cursor_overview_stats(&self.session_metas, &self.records)
     }
 
+    /// 7-day rolling average daily cost
+    pub fn rolling_avg_daily_cost(&self, days: usize) -> f64 {
+        let day_data = self.by_day(days);
+        if day_data.len() < 3 { return 0.0; }
+        let total: f64 = day_data.iter().map(|d| d.cost).sum();
+        total / day_data.len() as f64
+    }
+
+    /// Today's savings (context growth premium) filtered by source
+    pub fn today_savings_by_source(&self, source: Source) -> f64 {
+        let today = Utc::now().date_naive();
+        self.session_metas.iter()
+            .filter(|s| s.source == source && s.start_time.date_naive() == today && !s.is_subagent)
+            .filter_map(|s| self.analyze_session(&s.session_id))
+            .map(|a| a.context_growth_premium)
+            .sum()
+    }
+
+    /// Today's model usage breakdown
+    pub fn today_by_model(&self) -> Vec<ModelSummary> {
+        let today = Utc::now().date_naive();
+        let mut map: HashMap<String, ModelSummary> = HashMap::new();
+        for r in &self.records {
+            if r.timestamp.date_naive() != today { continue; }
+            let key = simplify_model(&r.model);
+            let entry = map.entry(key.clone()).or_insert(ModelSummary {
+                name: key,
+                input_tokens: 0,
+                output_tokens: 0,
+                record_count: 0,
+                cost: 0.0,
+            });
+            entry.input_tokens += r.input_tokens;
+            entry.output_tokens += r.output_tokens;
+            entry.record_count += 1;
+            entry.cost += pricing::estimate_cost(
+                &r.model, r.input_tokens, r.output_tokens,
+                r.cache_creation_tokens, r.cache_read_tokens,
+            );
+        }
+        let mut models: Vec<ModelSummary> = map.into_values().collect();
+        models.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+        models
+    }
+
     /// Today's aggregation filtered by source
     pub fn today_by_source(&self, source: Source) -> Aggregation {
         let today = Utc::now().date_naive();

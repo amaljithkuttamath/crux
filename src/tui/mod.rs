@@ -97,37 +97,18 @@ impl App {
             View::Overview => {
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        self.dashboard_state.move_up();
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        let active_count = self.store.active_sessions(24).len();
-                        let project_count = self.dashboard_state.cached_project_ids.len();
-                        self.dashboard_state.move_down(active_count, project_count);
-                    }
-                    KeyCode::Tab | KeyCode::BackTab => {
-                        let active_count = self.store.active_sessions(24).len();
-                        self.dashboard_state.switch_focus(active_count);
-                    }
-                    KeyCode::Enter => {
-                        self.dashboard_state.enter(&self.store);
-                    }
-                    KeyCode::Esc => {
-                        if !self.dashboard_state.back() {
-                            // already at top level
-                        }
-                    }
-                    KeyCode::Char('h') if self.dashboard_state.detail.is_none() => {
+                    KeyCode::Char('h') => {
                         self.scroll = 0; self.view = View::History;
                     }
-                    KeyCode::Char('d') if self.dashboard_state.detail.is_none() => {
+                    KeyCode::Char('d') => {
                         self.sessions_state = sessions::SessionsState::default();
                         self.view = View::ClaudeCode;
                     }
-                    KeyCode::Char('c') if self.dashboard_state.detail.is_none() => {
+                    KeyCode::Char('c') => {
                         self.cursor_state = cursor_view::CursorViewState::default();
                         self.view = View::Cursor;
                     }
+                    KeyCode::Char('o') => { /* already on overview */ }
                     KeyCode::Char('?') => self.show_help = true,
                     _ => {}
                 }
@@ -219,7 +200,7 @@ impl App {
 
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
-            View::Overview => dashboard::render(frame, &self.store, &self.config, &mut self.dashboard_state),
+            View::Overview => dashboard::render(frame, &self.store, &self.config, &mut self.dashboard_state, &self.live_sessions),
             View::History => history::render(frame, &self.store, &self.config, self.scroll),
             View::ClaudeCode => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state),
             View::Cursor => cursor_view::render(frame, &self.store, &self.config, &mut self.cursor_state),
