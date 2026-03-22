@@ -187,26 +187,12 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(source_header), chunks[1]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
 
-    // ── Column headers ──
-    let name_w = (w as usize).saturating_sub(62).max(8);
-    let col_header = Line::from(vec![
-        Span::styled(format!("   {:<width$}", "SESSION", width = name_w), Style::default().fg(FG_FAINT)),
-        Span::styled("  MODEL ", Style::default().fg(FG_FAINT)),
-        Span::styled("  DUR ", Style::default().fg(FG_FAINT)),
-        Span::styled("    COST", Style::default().fg(FG_FAINT)),
-        Span::styled("  CTX  ", Style::default().fg(FG_FAINT)),
-        Span::styled(" STATUS ", Style::default().fg(FG_FAINT)),
-        Span::styled(" AGE", Style::default().fg(FG_FAINT)),
-    ]);
-    frame.render_widget(Paragraph::new(col_header), chunks[3]);
+    // ── Session table ──
+    // Merge header + list into one Table widget for automatic column alignment
+    let table_height = (chunks[3].height + chunks[4].height) as usize;
 
-    // ── Session list: active on top, then completed ──
-    let max_rows = chunks[4].height as usize;
-
-    // Build flat list of display rows
-    #[allow(dead_code)]
+    // Build display data
     struct DisplayRow {
-        session_id: String,
         is_active: bool,
         is_subagent: bool,
         tree_prefix: String,
@@ -218,6 +204,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         status_label: String,
         status_color: Color,
         age_str: String,
+        is_separator: bool,
     }
 
     let mut rows: Vec<DisplayRow> = Vec::new();
@@ -227,11 +214,8 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             let cost = ana.as_ref().map(|a| a.total_cost).unwrap_or(0.0);
             let duration = meta.duration_minutes();
             let dur_str = if duration >= 60 { format!("{}h{:02}", duration / 60, duration % 60) } else { format!("{}m", duration.max(1)) };
+            let model_str = crate::store::simplify_model(&store.session_model(&meta.session_id));
 
-            let raw_model = store.session_model(&meta.session_id);
-            let model_str = crate::store::simplify_model(&raw_model);
-
-            // CTX percentage for mini-bar
             let ctx_pct = if let Some(limit) = meta.context_token_limit {
                 let current = ana.as_ref().map(|a| a.context_current).unwrap_or(0);
                 if limit > 0 { (current as f64 / limit as f64 * 100.0).min(100.0) } else { 0.0 }
@@ -241,11 +225,9 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                 if peak > 0 { (current as f64 / peak as f64 * 100.0).min(100.0) } else { 0.0 }
             };
 
-            // Status
             let is_live = is_active_group;
             let (status_label, status_color) = if let Some(a) = ana {
-                let ceiling = meta.context_token_limit;
-                let hs = analysis::health_status(a, ceiling, is_live, config.context_warn_pct, config.context_danger_pct);
+                let hs = analysis::health_status(a, meta.context_token_limit, is_live, config.context_warn_pct, config.context_danger_pct);
                 (hs.label().to_string(), health_color(&hs))
             } else if is_live {
                 ("running".to_string(), GREEN)
@@ -253,7 +235,6 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                 ("done".to_string(), FG_FAINT)
             };
 
-            // Age
             let age_str = if is_live {
                 let elapsed = (Utc::now() - meta.start_time).num_minutes();
                 if elapsed >= 60 { format!("{}h{:02}", elapsed / 60, elapsed % 60) } else { format!("{}m", elapsed.max(1)) }
@@ -261,55 +242,33 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                 format_ago(meta.end_time)
             };
 
-            let prefix = if is_active_group { "\u{25b6} ".to_string() } else { "  ".to_string() };
-
             rows.push(DisplayRow {
-                session_id: meta.session_id.clone(),
-                is_active: is_active_group,
-                is_subagent: false,
-                tree_prefix: prefix,
-                topic: meta.first_message.clone(),
-                model_str,
-                dur_str,
-                cost,
-                ctx_pct,
-                status_label,
-                status_color,
-                age_str,
+                is_active: is_active_group, is_subagent: false, is_separator: false,
+                tree_prefix: if is_active_group { "\u{25b6} ".into() } else { "  ".into() },
+                topic: meta.first_message.clone(), model_str, dur_str, cost, ctx_pct,
+                status_label, status_color, age_str,
             });
 
-            // Find subagents for this session
+            // Subagents
             let subagents: Vec<&crate::parser::conversation::SessionMeta> = all_sessions.iter()
                 .filter(|s| s.parent_session_id.as_deref() == Some(&meta.session_id))
-                .copied()
-                .collect();
-
+                .copied().collect();
             for (si, sub) in subagents.iter().enumerate() {
                 let is_last = si == subagents.len() - 1;
                 let tree_char = if is_last { "\u{2514}\u{2500} " } else { "\u{251c}\u{2500} " };
-
                 let sub_ana = store.analyze_session(&sub.session_id);
                 let sub_cost = sub_ana.as_ref().map(|a| a.total_cost).unwrap_or(0.0);
                 let sub_dur = sub.duration_minutes();
-                let sub_dur_str = if sub_dur >= 60 { format!("{}h{:02}", sub_dur / 60, sub_dur % 60) } else { format!("{}m", sub_dur.max(1)) };
-                let sub_model = crate::store::simplify_model(&store.session_model(&sub.session_id));
                 let sub_is_live = live_sessions.get(&sub.session_id).copied().unwrap_or(false);
-                let sub_status = if sub_is_live { "running" } else { "done" };
-                let sub_status_color = if sub_is_live { GREEN } else { FG_FAINT };
-                let sub_name = sub.agent_type.clone().unwrap_or_else(|| "subagent".to_string());
-
                 rows.push(DisplayRow {
-                    session_id: sub.session_id.clone(),
-                    is_active: false,
-                    is_subagent: true,
+                    is_active: false, is_subagent: true, is_separator: false,
                     tree_prefix: format!("  {}", tree_char),
-                    topic: sub_name,
-                    model_str: sub_model,
-                    dur_str: sub_dur_str,
-                    cost: sub_cost,
-                    ctx_pct: -1.0, // sentinel: no bar for subagents
-                    status_label: sub_status.to_string(),
-                    status_color: sub_status_color,
+                    topic: sub.agent_type.clone().unwrap_or_else(|| "subagent".into()),
+                    model_str: crate::store::simplify_model(&store.session_model(&sub.session_id)),
+                    dur_str: if sub_dur >= 60 { format!("{}h{:02}", sub_dur / 60, sub_dur % 60) } else { format!("{}m", sub_dur.max(1)) },
+                    cost: sub_cost, ctx_pct: -1.0,
+                    status_label: if sub_is_live { "running" } else { "done" }.into(),
+                    status_color: if sub_is_live { GREEN } else { FG_FAINT },
                     age_str: String::new(),
                 });
             }
@@ -317,106 +276,87 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     };
 
     build_rows(&active, true, &mut rows);
-
-    // Dashed separator between active and completed (only if both non-empty)
-    let need_separator = !active.is_empty() && !completed.is_empty();
-
+    if !active.is_empty() && !completed.is_empty() {
+        rows.push(DisplayRow {
+            is_active: false, is_subagent: false, is_separator: true,
+            tree_prefix: String::new(), topic: String::new(), model_str: String::new(),
+            dur_str: String::new(), cost: 0.0, ctx_pct: 0.0,
+            status_label: String::new(), status_color: FG_FAINT, age_str: String::new(),
+        });
+    }
     build_rows(&completed, false, &mut rows);
 
-    // Adjust cursor bounds (only parent sessions are selectable, excluding subagent rows)
-    let selectable_count = rows.iter().filter(|r| !r.is_subagent).count();
+    // Cursor bounds (skip subagents and separators)
+    let selectable_count = rows.iter().filter(|r| !r.is_subagent && !r.is_separator).count();
     if state.cursor >= selectable_count && selectable_count > 0 {
         state.cursor = selectable_count - 1;
     }
 
-    // Map cursor index to row index (skip subagent rows in cursor counting)
-    let mut cursor_row_idx: Option<usize> = None;
-    {
-        let mut selectable_i = 0usize;
-        for (ri, row) in rows.iter().enumerate() {
-            if !row.is_subagent {
-                if selectable_i == state.cursor {
-                    cursor_row_idx = Some(ri);
-                    break;
-                }
-                selectable_i += 1;
-            }
-        }
-    }
-
     // Scrolling
-    let separator_extra = if need_separator { 1 } else { 0 };
-    let _total_display_rows = rows.len() + separator_extra;
-    if let Some(cri) = cursor_row_idx {
-        // Account for separator offset
-        let effective_row = if need_separator && cri >= active.len() { cri + 1 } else { cri };
-        if effective_row >= state.scroll + max_rows {
-            state.scroll = effective_row.saturating_sub(max_rows - 1);
-        }
-        if effective_row < state.scroll {
-            state.scroll = effective_row;
-        }
+    if state.cursor >= state.scroll + table_height.saturating_sub(1) {
+        state.scroll = state.cursor.saturating_sub(table_height.saturating_sub(2));
     }
+    if state.cursor < state.scroll { state.scroll = state.cursor; }
 
-    // Render rows
-    let mut lines: Vec<Line> = Vec::new();
-    let mut display_idx = 0usize;
+    // Build Table rows
+    let header_row = Row::new(["SESSION", "MODEL", "DUR", "COST", "CTX", "STATUS", "AGE"]
+        .map(|h| Cell::from(Span::styled(h, Style::default().fg(FG_FAINT)))));
+
     let mut selectable_i = 0usize;
-    let active_row_count = {
-        let mut c = 0usize;
-        for r in &rows {
-            if r.is_active || r.is_subagent { c += 1; } else { break; }
+    let table_rows: Vec<Row> = rows.iter().map(|row| {
+        if row.is_separator {
+            return Row::new(vec![Cell::from(Span::styled(
+                "\u{2500} ".repeat(20), Style::default().fg(FG_FAINT),
+            ))]);
         }
-        c
-    };
-
-    for (ri, row) in rows.iter().enumerate() {
-        // Insert dashed separator between active and completed
-        if need_separator && ri == active_row_count {
-            if display_idx >= state.scroll && lines.len() < max_rows {
-                lines.push(dashed_divider(w));
-            }
-            display_idx += 1;
-        }
-
-        if display_idx < state.scroll {
-            display_idx += 1;
-            if !row.is_subagent { selectable_i += 1; }
-            continue;
-        }
-        if lines.len() >= max_rows { break; }
 
         let is_selected = !row.is_subagent && selectable_i == state.cursor;
-        let (fg_main, fg_sub) = if is_selected { (FG, ACCENT) } else { (FG_MUTED, FG_FAINT) };
-
-        let topic = truncate(&row.topic, name_w.saturating_sub(row.tree_prefix.chars().count()));
-
-        let mut row_spans = vec![
-            Span::styled(
-                row.tree_prefix.clone(),
-                Style::default().fg(if row.is_active { GREEN } else if row.is_subagent { FG_FAINT } else if is_selected { ACCENT } else { FG_FAINT }),
-            ),
-            Span::styled(format!("{:<width$}", topic, width = name_w.saturating_sub(row.tree_prefix.chars().count())), Style::default().fg(fg_main)),
-            Span::styled(format!("  {:>6}", row.model_str), Style::default().fg(fg_sub)),
-            Span::styled(format!("  {:>4}", row.dur_str), Style::default().fg(fg_sub)),
-            Span::styled(format!("  {:>7}", pricing::format_cost(row.cost)), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-            Span::styled("  ", Style::default()),
-        ];
-        // Context mini-bar or "--" for subagents
-        if row.ctx_pct >= 0.0 {
-            row_spans.extend(mini_bar(row.ctx_pct));
-        } else {
-            row_spans.push(Span::styled("  -- ", Style::default().fg(FG_FAINT)));
-        }
-        row_spans.push(Span::styled(format!("  {:>7}", row.status_label), Style::default().fg(row.status_color)));
-        row_spans.push(Span::styled(format!("  {}", row.age_str), Style::default().fg(FG_FAINT)));
-        lines.push(Line::from(row_spans));
-
-        display_idx += 1;
         if !row.is_subagent { selectable_i += 1; }
-    }
 
-    frame.render_widget(Paragraph::new(lines), chunks[4]);
+        let fg = if is_selected { FG } else { FG_MUTED };
+        let cost_fg = if is_selected { ACCENT } else { FG_FAINT };
+        let prefix_fg = if row.is_active { GREEN } else if row.is_subagent { FG_FAINT } else if is_selected { ACCENT } else { FG_FAINT };
+
+        let ctx_cell = if row.ctx_pct >= 0.0 {
+            Cell::from(Line::from(mini_bar(row.ctx_pct)))
+        } else {
+            Cell::from(Span::styled("--", Style::default().fg(FG_FAINT)))
+        };
+
+        Row::new(vec![
+            Cell::from(Line::from(vec![
+                Span::styled(row.tree_prefix.clone(), Style::default().fg(prefix_fg)),
+                Span::styled(row.topic.clone(), Style::default().fg(fg)),
+            ])),
+            Cell::from(Span::styled(row.model_str.clone(), Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(row.dur_str.clone(), Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(pricing::format_cost(row.cost), Style::default().fg(cost_fg))),
+            ctx_cell,
+            Cell::from(Span::styled(row.status_label.clone(), Style::default().fg(row.status_color))),
+            Cell::from(Span::styled(row.age_str.clone(), Style::default().fg(FG_FAINT))),
+        ])
+    }).collect();
+
+    let widths = [
+        Constraint::Min(20),     // SESSION
+        Constraint::Length(8),   // MODEL
+        Constraint::Length(8),   // DUR
+        Constraint::Length(8),   // COST
+        Constraint::Length(5),   // CTX
+        Constraint::Length(8),   // STATUS
+        Constraint::Length(9),   // AGE
+    ];
+
+    let table = Table::new(table_rows, widths)
+        .header(header_row)
+        .column_spacing(1);
+
+    let table_rect = Rect {
+        x: chunks[3].x, y: chunks[3].y,
+        width: chunks[3].width,
+        height: chunks[3].height + chunks[4].height,
+    };
+    frame.render_widget(table, table_rect);
     frame.render_widget(Paragraph::new(divider(w)), chunks[5]);
 
     // ── Help bar or search input ──

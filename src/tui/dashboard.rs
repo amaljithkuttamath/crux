@@ -251,21 +251,16 @@ fn render_main(
             chunks[7],
         );
     } else {
-        let mut lines: Vec<Line> = Vec::new();
-        lines.push(Line::from(Span::styled(
-            "   ACTIVE SESSIONS", Style::default().fg(ACCENT).bold(),
-        )));
+        let header_row = Row::new(["SESSION", "MODEL", "COST", "CTX", "STATUS", "AGE"]
+            .map(|h| Cell::from(Span::styled(h, Style::default().fg(FG_FAINT)))));
 
-        let name_w = (w as usize).saturating_sub(55).max(8);
-        for (i, session) in active.iter().enumerate() {
+        let table_rows: Vec<Row> = active.iter().enumerate().map(|(i, session)| {
             let is_selected = i == state.cursor;
             let model_name = crate::store::simplify_model(&store.session_model(&session.session_id));
             let cost = store.session_cost(&session.session_id);
-
             let ana = store.analyze_session(&session.session_id);
             let ceiling = session.context_token_limit;
 
-            // Context mini-bar
             let ctx_pct = if let Some(ref a) = ana {
                 if let Some(ceil) = ceiling {
                     (a.context_current as f64 / ceil as f64 * 100.0).min(100.0)
@@ -278,36 +273,46 @@ fn render_main(
                 analysis::health_status(a, ceiling, true, config.context_warn_pct, config.context_danger_pct)
             }).unwrap_or(analysis::HealthStatus::Fresh);
 
+            let compactions = ana.as_ref().map(|a| a.compaction_count).unwrap_or(0);
             let elapsed = (now - session.start_time).num_minutes();
             let age_str = if elapsed >= 60 { format!("{}h{:02}", elapsed / 60, elapsed % 60) } else { format!("{}m", elapsed.max(1)) };
 
-            let topic = truncate(&session.first_message, name_w);
             let fg = if is_selected { FG } else { FG_MUTED };
+            let prefix = if is_selected { "\u{25b8} " } else { "  " };
 
-            let mut row_spans: Vec<Span> = vec![
-                Span::styled(if is_selected { "   \u{25b8} " } else { "     " }.to_string(), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-                Span::styled(format!("{:<width$}", topic, width = name_w), Style::default().fg(fg)),
-                Span::styled(format!("  {:>6}", model_name), Style::default().fg(FG_FAINT)),
-                Span::styled(format!("  {:>7}", pricing::format_cost(cost)), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-                Span::styled("  ", Style::default()),
+            let mut status_spans = vec![
+                Span::styled(status.label().to_string(), Style::default().fg(health_color(&status))),
             ];
-            row_spans.extend(mini_bar(ctx_pct));
-            row_spans.push(Span::styled(
-                format!("  {:<7}", status.label()),
-                Style::default().fg(health_color(&status)),
-            ));
-            let compactions = ana.as_ref().map(|a| a.compaction_count).unwrap_or(0);
             if compactions > 0 {
-                row_spans.push(Span::styled(
-                    format!(" {}c", compactions),
-                    Style::default().fg(YELLOW),
-                ));
+                status_spans.push(Span::styled(format!(" {}c", compactions), Style::default().fg(YELLOW)));
             }
-            row_spans.push(Span::styled(format!(" {:>5}", age_str), Style::default().fg(FG_FAINT)));
 
-            lines.push(Line::from(row_spans));
-        }
-        frame.render_widget(Paragraph::new(lines), chunks[7]);
+            Row::new(vec![
+                Cell::from(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
+                    Span::styled(session.first_message.clone(), Style::default().fg(fg)),
+                ])),
+                Cell::from(Span::styled(model_name, Style::default().fg(FG_FAINT))),
+                Cell::from(Span::styled(pricing::format_cost(cost), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT }))),
+                Cell::from(Line::from(mini_bar(ctx_pct))),
+                Cell::from(Line::from(status_spans)),
+                Cell::from(Span::styled(age_str, Style::default().fg(FG_FAINT))),
+            ])
+        }).collect();
+
+        let widths = [
+            Constraint::Min(15),     // SESSION
+            Constraint::Length(7),   // MODEL
+            Constraint::Length(8),   // COST
+            Constraint::Length(5),   // CTX
+            Constraint::Length(10),  // STATUS (+compaction)
+            Constraint::Length(6),   // AGE
+        ];
+
+        let table = Table::new(table_rows, widths)
+            .header(header_row)
+            .column_spacing(1);
+        frame.render_widget(table, chunks[7]);
     }
 
     // ── Hourly activity heatmap (2 lines) ──
@@ -358,44 +363,45 @@ fn render_main(
             project_area,
         );
     } else {
-        let mut lines: Vec<Line> = Vec::new();
-
-        let name_w = (w as usize).saturating_sub(55).max(8);
-        let bar_w = 10usize;
-
-        lines.push(Line::from(vec![
-            Span::styled("   PROJECTS", Style::default().fg(ACCENT).bold()),
-            Span::styled(
-                format!("{}{:>8}  {:>4}  {:>4}  {:>5}",
-                    " ".repeat((w as usize).saturating_sub(50).max(1)),
-                    "cost", "%", "sess", "last"),
-                Style::default().fg(FG_FAINT),
-            ),
-        ]));
-
         let max_project_cost = projects.first().map(|p| p.cost).unwrap_or(1.0).max(0.01);
         let total_cost: f64 = projects.iter().map(|p| p.cost).sum();
+        let bar_w = 10usize;
 
-        for p in projects.iter().take(max_rows.saturating_sub(1)) {
+        let proj_header = Row::new(["PROJECT", "", "COST", "%", "SESS", "LAST"]
+            .map(|h| Cell::from(Span::styled(h, Style::default().fg(FG_FAINT)))));
+
+        let proj_rows: Vec<Row> = projects.iter().take(max_rows.saturating_sub(1)).map(|p| {
             let pname = display_project_name(&p.name);
-            let pname_trunc = truncate(&pname, name_w);
             let pct = if total_cost > 0.0 { p.cost / total_cost * 100.0 } else { 0.0 };
-
             let (bf, be) = smooth_bar(p.cost, max_project_cost, bar_w);
-            let recency = format_ago(p.last_used);
+            let recency = format_ago(p.last_used).replace(" ago", "");
 
-            lines.push(Line::from(vec![
-                Span::styled(format!("   {:<width$}", pname_trunc, width = name_w), Style::default().fg(FG_MUTED)),
-                Span::styled(format!(" {}", bf), Style::default().fg(FG_MUTED)),
-                Span::styled(be, Style::default().fg(FG_FAINT)),
-                Span::styled(format!(" {:>8}", pricing::format_cost(p.cost)), Style::default().fg(FG_MUTED)),
-                Span::styled(format!("  {:>3.0}%", pct), Style::default().fg(FG_FAINT)),
-                Span::styled(format!("  {:>4}", p.session_count), Style::default().fg(FG_FAINT)),
-                Span::styled(format!("  {:>5}", recency.replace(" ago", "")), Style::default().fg(FG_FAINT)),
-            ]));
-        }
+            Row::new(vec![
+                Cell::from(Span::styled(pname, Style::default().fg(FG_MUTED))),
+                Cell::from(Line::from(vec![
+                    Span::styled(bf, Style::default().fg(FG_MUTED)),
+                    Span::styled(be, Style::default().fg(FG_FAINT)),
+                ])),
+                Cell::from(Span::styled(pricing::format_cost(p.cost), Style::default().fg(FG_MUTED))),
+                Cell::from(Span::styled(format!("{:.0}%", pct), Style::default().fg(FG_FAINT))),
+                Cell::from(Span::styled(p.session_count.to_string(), Style::default().fg(FG_FAINT))),
+                Cell::from(Span::styled(recency, Style::default().fg(FG_FAINT))),
+            ])
+        }).collect();
 
-        frame.render_widget(Paragraph::new(lines), project_area);
+        let proj_widths = [
+            Constraint::Min(15),          // PROJECT
+            Constraint::Length(bar_w as u16), // bar
+            Constraint::Length(9),        // COST
+            Constraint::Length(5),        // %
+            Constraint::Length(4),        // SESS
+            Constraint::Length(6),        // LAST
+        ];
+
+        let proj_table = Table::new(proj_rows, proj_widths)
+            .header(proj_header)
+            .column_spacing(1);
+        frame.render_widget(proj_table, project_area);
     }
 
     // ── Help bar ──

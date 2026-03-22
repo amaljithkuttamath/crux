@@ -90,114 +90,119 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config, scrol
     frame.render_widget(Paragraph::new(trend_lines), chunks[2]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
 
-    // ── Daily cost bars ──
+    // ── Daily cost table ──
     let today = chrono::Utc::now().date_naive();
     let max_rows = chunks[4].height as usize;
     let clamped_scroll = scroll.min(days.len().saturating_sub(max_rows));
     let max_cost = days.iter().map(|d| d.cost).fold(0.0f64, f64::max).max(0.01);
     let bar_w = 12usize;
 
-    let mut lines: Vec<Line> = Vec::new();
+    let day_header = Row::new(["DATE", "COST", "", "SESS", "INPUT", "OUTPUT"]
+        .map(|h| Cell::from(Span::styled(h, Style::default().fg(FG_FAINT)))));
 
-    // Header
-    lines.push(Line::from(vec![
-        Span::styled(format!("   {:<11}", "date"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("{:>8}", "cost"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:>bar_w$}", ""), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:>6}", "sess"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:>9}", "input"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:>9}", "output"), Style::default().fg(FG_FAINT)),
-    ]));
-
+    let mut day_rows: Vec<Row> = Vec::new();
     for day in days.iter().skip(clamped_scroll).take(max_rows.saturating_sub(1)) {
         let is_today = day.date == today;
         let is_yesterday = day.date == today - chrono::Duration::days(1);
         let fg = if is_today { FG } else { FG_MUTED };
         let cost_fg = if is_today { ACCENT } else { FG_MUTED };
+        let bar_color = if is_today { ACCENT } else { FG_MUTED };
 
-        let date_label = if is_today { "today".to_string() }
-            else if is_yesterday { "yesterday".to_string() }
+        let date_label = if is_today { "today".into() }
+            else if is_yesterday { "yesterday".into() }
             else { day.date.format("%b %d %a").to_string() };
 
         let (bf, be) = smooth_bar(day.cost, max_cost, bar_w);
-        let bar_color = if is_today { ACCENT } else { FG_MUTED };
 
-        lines.push(Line::from(vec![
-            Span::styled(format!("   {:<11}", date_label), Style::default().fg(fg)),
-            Span::styled(format!("{:>8}", pricing::format_cost(day.cost)), Style::default().fg(cost_fg)),
-            Span::styled(format!("  {}", bf), Style::default().fg(bar_color)),
-            Span::styled(be, Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {:>6}", day.session_count), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {:>9}", compact(day.input_tokens)), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {:>9}", compact(day.output_tokens)), Style::default().fg(FG_FAINT)),
+        day_rows.push(Row::new(vec![
+            Cell::from(Span::styled(date_label, Style::default().fg(fg))),
+            Cell::from(Span::styled(pricing::format_cost(day.cost), Style::default().fg(cost_fg))),
+            Cell::from(Line::from(vec![
+                Span::styled(bf, Style::default().fg(bar_color)),
+                Span::styled(be, Style::default().fg(FG_FAINT)),
+            ])),
+            Cell::from(Span::styled(day.session_count.to_string(), Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(compact(day.input_tokens), Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(compact(day.output_tokens), Style::default().fg(FG_FAINT))),
         ]));
     }
 
     if days.len() > max_rows.saturating_sub(1) {
         let remaining = days.len().saturating_sub(clamped_scroll + max_rows - 1);
         if remaining > 0 {
-            if let Some(last) = lines.last_mut() {
-                *last = Line::from(vec![
-                    Span::styled(format!("   ... {} more days", remaining), Style::default().fg(FG_FAINT)),
-                ]);
-            }
+            day_rows.push(Row::new(vec![
+                Cell::from(Span::styled(format!("... {} more days", remaining), Style::default().fg(FG_FAINT))),
+            ]));
         }
     }
 
-    frame.render_widget(Paragraph::new(lines), chunks[4]);
+    let day_widths = [
+        Constraint::Length(11),           // DATE
+        Constraint::Length(9),            // COST
+        Constraint::Length(bar_w as u16), // bar
+        Constraint::Length(5),            // SESS
+        Constraint::Length(8),            // INPUT
+        Constraint::Length(8),            // OUTPUT
+    ];
+    let day_table = Table::new(day_rows, day_widths)
+        .header(day_header)
+        .column_spacing(1);
+    frame.render_widget(day_table, chunks[4]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[5]);
 
-    // ── Model breakdown ──
+    // ── Model breakdown table ──
     let total_cost: f64 = models.iter().map(|m| m.cost).sum();
 
-    let model_header = Line::from(vec![
-        Span::styled("   models", Style::default().fg(ACCENT)),
-        Span::styled(
-            format!("{}requests     tokens        cost    share",
-                " ".repeat((w as usize).saturating_sub(60).max(2))),
-            Style::default().fg(FG_FAINT),
-        ),
-    ]);
-    frame.render_widget(Paragraph::new(model_header), chunks[6]);
+    let model_header = Row::new(["MODEL", "REQUESTS", "TOKENS", "COST", "SHARE", ""]
+        .map(|h| Cell::from(Span::styled(h, Style::default().fg(FG_FAINT)))));
 
-    let mut model_lines: Vec<Line> = Vec::new();
+    let mut model_table_rows: Vec<Row> = Vec::new();
     for m in models.iter().take(model_rows as usize) {
         let cost_pct = if total_cost > 0.0 { m.cost / total_cost * 100.0 } else { 0.0 };
         let total_tok = m.input_tokens + m.output_tokens;
-        let alloc_filled = (cost_pct / 100.0 * 5.0).round() as usize;
-        let alloc_bar: String = "\u{2588}".repeat(alloc_filled.min(5));
-        let alloc_empty: String = "\u{2591}".repeat(5usize.saturating_sub(alloc_filled));
-
-        let model_color = match m.name.as_str() {
-            "opus" => PURPLE,
-            "sonnet" => ACCENT,
-            "haiku" => ACCENT2,
-            _ => FG,
+        let mc = match m.name.as_str() {
+            "opus" => PURPLE, "sonnet" => ACCENT, "haiku" => ACCENT2, _ => FG,
         };
 
-        model_lines.push(Line::from(vec![
-            Span::styled(format!("   {:<12}", m.name), Style::default().fg(model_color)),
-            Span::styled(
-                format!("{}{:>8}", " ".repeat((w as usize).saturating_sub(60).max(2)), m.record_count),
-                Style::default().fg(FG_FAINT),
-            ),
-            Span::styled(format!("  {:>10}", compact(total_tok)), Style::default().fg(FG_MUTED)),
-            Span::styled(format!("    {:>8}", pricing::format_cost(m.cost)), Style::default().fg(ACCENT)),
-            Span::styled(format!("  {}", alloc_bar), Style::default().fg(model_color)),
-            Span::styled(alloc_empty, Style::default().fg(FG_FAINT)),
-            Span::styled(format!("{:>4.0}%", cost_pct), Style::default().fg(FG_FAINT)),
+        model_table_rows.push(Row::new(vec![
+            Cell::from(Span::styled(m.name.clone(), Style::default().fg(mc))),
+            Cell::from(Span::styled(m.record_count.to_string(), Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(compact(total_tok), Style::default().fg(FG_MUTED))),
+            Cell::from(Span::styled(pricing::format_cost(m.cost), Style::default().fg(ACCENT))),
+            Cell::from(Span::styled(format!("{:.0}%", cost_pct), Style::default().fg(FG_FAINT))),
+            Cell::from(Line::from(mini_bar(cost_pct))),
         ]));
     }
 
-    model_lines.push(Line::from(vec![
-        Span::styled("   api-equivalent: ", Style::default().fg(FG_FAINT)),
-        Span::styled("sonnet $3/$15", Style::default().fg(FG_FAINT)),
-        Span::styled("  opus $15/$75", Style::default().fg(FG_FAINT)),
-        Span::styled("  haiku $0.80/$4", Style::default().fg(FG_FAINT)),
-        Span::styled("  (per 1M in/out)", Style::default().fg(FG_FAINT)),
+    // API equivalent row
+    model_table_rows.push(Row::new(vec![
+        Cell::from(Span::styled("api-equivalent:", Style::default().fg(FG_FAINT))),
+        Cell::from(Span::styled("sonnet $3/$15", Style::default().fg(FG_FAINT))),
+        Cell::from(Span::styled("opus $15/$75", Style::default().fg(FG_FAINT))),
+        Cell::from(Span::styled("haiku $0.80/$4", Style::default().fg(FG_FAINT))),
+        Cell::from(Span::styled("(per 1M in/out)", Style::default().fg(FG_FAINT))),
+        Cell::from(Span::raw("")),
     ]));
 
-    frame.render_widget(Paragraph::new(model_lines), chunks[7]);
+    let model_widths = [
+        Constraint::Length(12),  // MODEL
+        Constraint::Length(10),  // REQUESTS
+        Constraint::Length(10),  // TOKENS
+        Constraint::Length(10),  // COST
+        Constraint::Length(5),   // SHARE %
+        Constraint::Length(5),   // mini-bar
+    ];
+
+    // Merge header + model rows area
+    let model_rect = Rect {
+        x: chunks[6].x, y: chunks[6].y,
+        width: chunks[6].width,
+        height: chunks[6].height + chunks[7].height,
+    };
+    let model_table = Table::new(model_table_rows, model_widths)
+        .header(model_header)
+        .column_spacing(1);
+    frame.render_widget(model_table, model_rect);
     frame.render_widget(Paragraph::new(divider(w)), chunks[8]);
 
     let help = help_bar(&[

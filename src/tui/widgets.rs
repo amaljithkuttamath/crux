@@ -140,6 +140,7 @@ pub fn shorten_tool(name: &str) -> String {
 
 
 /// Soft dashed divider for zone breaks: "─ ─ ─ ─"
+#[allow(dead_code)]
 pub fn dashed_divider(width: u16) -> Line<'static> {
     let target_chars = width.saturating_sub(3) as usize;
     let pairs = target_chars / 2;
