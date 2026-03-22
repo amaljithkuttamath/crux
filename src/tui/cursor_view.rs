@@ -212,14 +212,26 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     let completion_c = if stats.completion_rate > 70.0 { GREEN } else if stats.completion_rate > 50.0 { YELLOW } else { RED };
     let ctx_c = if stats.avg_context_fill < 50.0 { GREEN } else if stats.avg_context_fill < 75.0 { YELLOW } else { RED };
 
+    // Total context tokens used across all cursor sessions
+    let total_ctx_tokens: u64 = sorted.iter()
+        .filter_map(|s| s.context_tokens_used)
+        .sum();
+    let avg_ctx_tokens = if stats.total_sessions > 0 {
+        total_ctx_tokens / stats.total_sessions as u64
+    } else { 0 };
+
     let kpi_line1 = Line::from(vec![
         Span::styled("   completion ", Style::default().fg(FG_FAINT)),
         Span::styled(format!("{:.0}%", stats.completion_rate), Style::default().fg(completion_c).bold()),
         Span::styled("   lines shipped ", Style::default().fg(FG_FAINT)),
         Span::styled(compact(stats.total_lines), Style::default().fg(FG).bold()),
-        Span::styled("   avg ctx ", Style::default().fg(FG_FAINT)),
-        Span::styled(format!("{:.0}%", stats.avg_context_fill), Style::default().fg(ctx_c).bold()),
-        Span::styled("   agent mode ", Style::default().fg(FG_FAINT)),
+        Span::styled("   ctx ", Style::default().fg(FG_FAINT)),
+        Span::styled(
+            format!("{} total  {}/sess  avg {:.0}%",
+                compact(total_ctx_tokens), compact(avg_ctx_tokens), stats.avg_context_fill),
+            Style::default().fg(ctx_c).bold(),
+        ),
+        Span::styled("   agent ", Style::default().fg(FG_FAINT)),
         Span::styled(format!("{:.0}%", stats.agent_pct), Style::default().fg(PURPLE).bold()),
     ]);
 
