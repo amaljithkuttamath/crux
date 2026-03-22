@@ -329,7 +329,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             let elapsed = (now - session.start_time).num_minutes();
             if elapsed >= 60 { format!("{}h{:02}m", elapsed / 60, elapsed % 60) } else { format!("{}m", elapsed.max(1)) }
         } else {
-            format_ago(session.start_time)
+            format_ago(session.end_time)
         };
 
         // MODE

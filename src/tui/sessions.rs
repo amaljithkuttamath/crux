@@ -103,7 +103,7 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state:
 //  Claude Code full view: daily cost BarChart + model breakdown + sessions
 // ════════════════════════════════════════════════════════════════════════
 
-fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &mut SessionsState, live_sessions: &std::collections::HashMap<String, bool>) {
+fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut SessionsState, live_sessions: &std::collections::HashMap<String, bool>) {
     let area = frame.area();
     let w = area.width;
     let all_sessions = store.sessions_by_source(crate::parser::Source::ClaudeCode);
@@ -138,8 +138,8 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
     }
 
     // Sort within groups
-    sort_sessions(&mut active, state.sort_column);
-    sort_sessions(&mut completed, state.sort_column);
+    sort_sessions(&mut active, state.sort_column, config.context_warn_pct, config.context_danger_pct);
+    sort_sessions(&mut completed, state.sort_column, config.context_warn_pct, config.context_danger_pct);
 
     let active_count = active.len();
     let session_count = filtered.len();
@@ -292,7 +292,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
             let is_live = is_active_group;
             let (status_label, status_color) = if let Some(a) = ana {
                 let ceiling = meta.context_token_limit;
-                let hs = analysis::health_status(a, ceiling, is_live, 60.0, 85.0);
+                let hs = analysis::health_status(a, ceiling, is_live, config.context_warn_pct, config.context_danger_pct);
                 (hs.label().to_string(), health_color(&hs))
             } else if is_live {
                 ("running".to_string(), GREEN)
@@ -482,6 +482,8 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
 fn sort_sessions(
     sessions: &mut Vec<(&crate::parser::conversation::SessionMeta, Option<crate::store::SessionAnalysis>)>,
     col: SortColumn,
+    warn_pct: f64,
+    danger_pct: f64,
 ) {
     match col {
         SortColumn::Cost => {
@@ -507,10 +509,10 @@ fn sort_sessions(
         SortColumn::Status => {
             sessions.sort_by(|a, b| {
                 let sa = a.1.as_ref().map(|x| {
-                    analysis::health_status(x, a.0.context_token_limit, false, 60.0, 85.0).sort_order()
+                    analysis::health_status(x, a.0.context_token_limit, false, warn_pct, danger_pct).sort_order()
                 }).unwrap_or(0);
                 let sb = b.1.as_ref().map(|x| {
-                    analysis::health_status(x, b.0.context_token_limit, false, 60.0, 85.0).sort_order()
+                    analysis::health_status(x, b.0.context_token_limit, false, warn_pct, danger_pct).sort_order()
                 }).unwrap_or(0);
                 sb.cmp(&sa)
             });
@@ -522,7 +524,7 @@ fn sort_sessions(
 //  Session detail view
 // ════════════════════════════════════════════════════════════════════════
 
-fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &mut SessionsState) {
+fn render_detail(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut SessionsState) {
     let area = frame.area();
     let w = area.width;
     let detail = match &state.detail {
@@ -557,7 +559,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
 
         let ceiling = store.session_meta(&detail.session_id).and_then(|m| m.context_token_limit);
         let health = if let Some(ref a) = analysis {
-            let status = analysis::health_status(a, ceiling, false, 70.0, 90.0);
+            let status = analysis::health_status(a, ceiling, false, config.context_warn_pct, config.context_danger_pct);
             (status.label(), health_color(&status))
         } else {
             ("", FG_FAINT)

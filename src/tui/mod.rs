@@ -42,14 +42,27 @@ impl App {
         let watcher_rx = parser::watcher::watch(&config.data_dir()).ok();
         let sessions_dir = dirs::home_dir().unwrap_or_default().join(".claude/sessions");
         let live_sessions = crate::parser::liveness::check_liveness(&sessions_dir);
+        let initial_view = match config.default_view.as_str() {
+            "claude_code" => View::ClaudeCode,
+            "cursor" => View::Cursor,
+            "history" => View::History,
+            _ => View::Overview,
+        };
+        let initial_sort = match config.default_sort.as_str() {
+            "age" => sessions::SortColumn::Age,
+            "ctx" => sessions::SortColumn::Ctx,
+            "status" => sessions::SortColumn::Status,
+            "duration" => sessions::SortColumn::Duration,
+            _ => sessions::SortColumn::Cost,
+        };
         Self {
             store,
             config,
-            view: View::Overview,
+            view: initial_view,
             should_quit: false,
             show_help: false,
             dashboard_state: dashboard::DashboardState::default(),
-            sessions_state: sessions::SessionsState::default(),
+            sessions_state: sessions::SessionsState { sort_column: initial_sort, ..Default::default() },
             cursor_state: cursor_view::CursorViewState::default(),
             scroll: 0,
             watcher_rx,

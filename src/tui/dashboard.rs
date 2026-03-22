@@ -333,7 +333,7 @@ fn render_source_block(
 //  Session detail view
 // ════════════════════════════════════════════════════════════════════════
 
-fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &mut DashboardState) {
+fn render_detail(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut DashboardState) {
     let area = frame.area();
     let w = area.width;
     let detail = match &state.detail {
@@ -365,7 +365,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
 
         let ceiling = store.session_meta(&detail.session_id).and_then(|m| m.context_token_limit);
         let health = if let Some(ref a) = analysis {
-            let status = crate::store::analysis::health_status(a, ceiling, false, 70.0, 90.0);
+            let status = crate::store::analysis::health_status(a, ceiling, false, config.context_warn_pct, config.context_danger_pct);
             (status.label(), health_color(&status))
         } else {
             ("", FG_FAINT)
