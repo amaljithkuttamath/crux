@@ -31,11 +31,15 @@ pub struct App {
     pub scroll: usize,
     watcher_rx: Option<mpsc::Receiver<Vec<String>>>,
     last_cursor_refresh: Instant,
+    pub live_sessions: std::collections::HashMap<String, bool>,
+    last_liveness_check: Instant,
 }
 
 impl App {
     pub fn new(store: Store, config: Config) -> Self {
         let watcher_rx = parser::watcher::watch(&config.data_dir()).ok();
+        let sessions_dir = dirs::home_dir().unwrap_or_default().join(".claude/sessions");
+        let live_sessions = crate::parser::liveness::check_liveness(&sessions_dir);
         Self {
             store,
             config,
@@ -47,6 +51,8 @@ impl App {
             scroll: 0,
             watcher_rx,
             last_cursor_refresh: Instant::now(),
+            live_sessions,
+            last_liveness_check: Instant::now(),
         }
     }
 
@@ -55,6 +61,7 @@ impl App {
         loop {
             terminal.draw(|frame| self.draw(frame))?;
             self.check_watcher();
+            self.check_liveness();
             self.check_cursor_refresh();
 
             if event::poll(tick_rate)? {
@@ -204,6 +211,18 @@ impl App {
                 }
             }
         }
+    }
+
+    fn check_liveness(&mut self) {
+        let interval = self.config.live_check_interval_duration();
+        if self.last_liveness_check.elapsed() < interval { return; }
+        self.last_liveness_check = Instant::now();
+        let sessions_dir = dirs::home_dir().unwrap_or_default().join(".claude/sessions");
+        self.live_sessions = crate::parser::liveness::check_liveness(&sessions_dir);
+    }
+
+    pub fn is_session_live(&self, session_id: &str) -> bool {
+        self.live_sessions.get(session_id).copied().unwrap_or(false)
     }
 
     fn check_cursor_refresh(&mut self) {
