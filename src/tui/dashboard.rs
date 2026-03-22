@@ -130,8 +130,8 @@ fn render_main(
     let ticker1 = Line::from(vec![
         Span::styled("   TODAY", Style::default().fg(ACCENT).bold()),
         Span::styled(format!("  {}", pricing::format_cost(today.cost)), Style::default().fg(FG).bold()),
-        Span::styled(format!("{}",
-            " ".repeat((w as usize).saturating_sub(50).max(1))),
+        Span::styled(
+            " ".repeat((w as usize).saturating_sub(50).max(1)),
             Style::default()),
         Span::styled(spark_str, Style::default().fg(ACCENT)),
         Span::styled(" 7d", Style::default().fg(FG_FAINT)),
@@ -366,6 +366,7 @@ fn render_main(
     ])), chunks[10]);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_source_block(
     frame: &mut ratatui::Frame,
     area: Rect,
@@ -431,7 +432,7 @@ fn render_source_block(
     });
     if has_danger {
         lines.push(Line::from(Span::styled(
-            format!("   \u{26a0} session near context limit"),
+            "   \u{26a0} session near context limit".to_string(),
             Style::default().fg(RED),
         )));
     } else {

@@ -440,7 +440,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
         lines.push(Line::from(vec![
             Span::styled(
-                format!("{}", &row.tree_prefix),
+                row.tree_prefix.clone(),
                 Style::default().fg(if row.is_active { GREEN } else if row.is_subagent { FG_FAINT } else if is_selected { ACCENT } else { FG_FAINT }),
             ),
             Span::styled(format!("{:<width$}", topic, width = name_w.saturating_sub(row.tree_prefix.chars().count())), Style::default().fg(fg_main)),

@@ -143,7 +143,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             });
         }
         SortColumn::Duration => {
-            sorted.sort_by(|a, b| b.duration_minutes().cmp(&a.duration_minutes()));
+            sorted.sort_by_key(|s| std::cmp::Reverse(s.duration_minutes()));
         }
         SortColumn::Context => {
             sorted.sort_by(|a, b| {
