@@ -10,12 +10,43 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct DashboardState {
+    pub cursor: usize,
+    pub scroll: usize,
     pub detail: Option<SessionDetailView>,
+    pub cached_session_ids: Vec<String>,
 }
 
 pub struct SessionDetailView {
     pub session_id: String,
     pub timeline: SessionTimeline,
+}
+
+impl DashboardState {
+    pub fn move_up(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
+
+    pub fn move_down(&mut self, max: usize) {
+        if max > 0 && self.cursor + 1 < max {
+            self.cursor += 1;
+        }
+    }
+
+    pub fn enter(&mut self, store: &Store) {
+        if self.detail.is_some() { return; }
+        if let Some(id) = self.cached_session_ids.get(self.cursor).cloned() {
+            if let Some(timeline) = store.session_timeline(&id) {
+                self.detail = Some(SessionDetailView {
+                    session_id: id,
+                    timeline,
+                });
+            }
+        }
+    }
+
+    pub fn back(&mut self) -> bool {
+        if self.detail.is_some() { self.detail = None; true } else { false }
+    }
 }
 
 
@@ -41,7 +72,7 @@ fn render_main(
     frame: &mut ratatui::Frame,
     store: &Store,
     config: &Config,
-    _state: &mut DashboardState,
+    state: &mut DashboardState,
     live_sessions: &HashMap<String, bool>,
 ) {
     let area = frame.area();
@@ -79,7 +110,9 @@ fn render_main(
             Constraint::Length(1),  // divider
             Constraint::Length(source_lines), // source blocks
             Constraint::Length(1),  // divider
-            Constraint::Min(model_lines), // model usage
+            Constraint::Length(model_lines), // model usage
+            Constraint::Length(1),  // divider
+            Constraint::Min(3),    // recent sessions
             Constraint::Length(1),  // divider
             Constraint::Length(1),  // help bar
         ])
@@ -241,17 +274,96 @@ fn render_main(
         frame.render_widget(Paragraph::new(lines), model_area);
     }
 
-    // --- Bottom ---
+    // --- Divider before recent sessions ---
     frame.render_widget(Paragraph::new(divider(w)), chunks[7]);
+
+    // --- Recent sessions ---
+    let recent_area = chunks[8];
+    let all_sessions = store.sessions_by_time();
+    let today_date = chrono::Utc::now().date_naive();
+    let recent: Vec<_> = all_sessions.iter()
+        .filter(|s| s.start_time.date_naive() == today_date && !s.is_subagent)
+        .collect();
+
+    state.cached_session_ids = recent.iter().map(|s| s.session_id.clone()).collect();
+    if !state.cached_session_ids.is_empty() {
+        state.cursor = state.cursor.min(state.cached_session_ids.len() - 1);
+    }
+
+    let max_rows = recent_area.height as usize;
+    let now = chrono::Utc::now();
+
+    // Scroll tracking
+    if state.cursor >= state.scroll + max_rows {
+        state.scroll = state.cursor.saturating_sub(max_rows - 1);
+    }
+    if state.cursor < state.scroll { state.scroll = state.cursor; }
+
+    if recent.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "   no sessions today", Style::default().fg(FG_FAINT),
+            ))),
+            recent_area,
+        );
+    } else {
+        let mut lines: Vec<Line> = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "   RECENT SESSIONS", Style::default().fg(ACCENT).bold(),
+        )));
+
+        for (i, session) in recent.iter().skip(state.scroll).take(max_rows.saturating_sub(1)).enumerate() {
+            let idx = i + state.scroll;
+            let is_selected = idx == state.cursor;
+            let is_live = live_sessions.get(&session.session_id).copied().unwrap_or(false);
+
+            let source_color = if session.source == Source::ClaudeCode { ACCENT2 } else { BLUE };
+            let model_name = crate::store::simplify_model(&store.session_model(&session.session_id));
+            let cost = store.session_cost(&session.session_id);
+
+            let analysis = store.analyze_session(&session.session_id);
+            let ceiling = session.context_token_limit;
+            let status = analysis.as_ref().map(|a| {
+                crate::store::analysis::health_status(a, ceiling, is_live, config.context_warn_pct, config.context_danger_pct)
+            }).unwrap_or(crate::store::analysis::HealthStatus::Done);
+
+            let age_str = if is_live {
+                let elapsed = (now - session.start_time).num_minutes();
+                if elapsed >= 60 { format!("{}h{:02}", elapsed / 60, elapsed % 60) } else { format!("{}m", elapsed.max(1)) }
+            } else {
+                format_ago(session.end_time)
+            };
+
+            let prefix = if is_live { "\u{25b6}" } else if is_selected { "\u{25b8}" } else { " " };
+            let name_w = (w as usize).saturating_sub(55).max(8);
+            let topic = truncate(&session.first_message, name_w);
+
+            let fg = if is_selected { FG } else { FG_MUTED };
+            let cost_fg = if is_selected { ACCENT } else { FG_FAINT };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("   {} ", prefix), Style::default().fg(if is_live { GREEN } else if is_selected { ACCENT } else { FG_FAINT })),
+                Span::styled("\u{25cf}", Style::default().fg(source_color)),
+                Span::styled(format!(" {:<width$}", topic, width = name_w), Style::default().fg(fg)),
+                Span::styled(format!(" {:>6}", model_name), Style::default().fg(FG_FAINT)),
+                Span::styled(format!("  {:>7}", pricing::format_cost(cost)), Style::default().fg(cost_fg)),
+                Span::styled(format!("  {:<7}", status.label()), Style::default().fg(health_color(&status))),
+                Span::styled(format!(" {:>6}", age_str), Style::default().fg(FG_FAINT)),
+            ]));
+        }
+        frame.render_widget(Paragraph::new(lines), recent_area);
+    }
+
+    // --- Bottom ---
+    frame.render_widget(Paragraph::new(divider(w)), chunks[9]);
     frame.render_widget(Paragraph::new(help_bar(&[
         ("\u{2191}\u{2193}", "navigate"),
-        ("tab", "zone"),
         ("enter", "detail"),
         ("d", "cc"),
         ("c", "cursor"),
         ("h", "history"),
         ("q", "quit"),
-    ])), chunks[8]);
+    ])), chunks[10]);
 }
 
 fn render_source_block(

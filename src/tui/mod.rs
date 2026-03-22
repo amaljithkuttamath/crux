@@ -110,14 +110,37 @@ impl App {
             View::Overview => {
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Char('h') => {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if self.dashboard_state.detail.is_some() {
+                            // scroll detail if needed
+                        } else {
+                            self.dashboard_state.move_up();
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if self.dashboard_state.detail.is_some() {
+                            // scroll detail if needed
+                        } else {
+                            let max = self.dashboard_state.cached_session_ids.len();
+                            self.dashboard_state.move_down(max);
+                        }
+                    }
+                    KeyCode::Enter => {
+                        self.dashboard_state.enter(&self.store);
+                    }
+                    KeyCode::Esc => {
+                        if !self.dashboard_state.back() {
+                            // already at top level
+                        }
+                    }
+                    KeyCode::Char('h') if self.dashboard_state.detail.is_none() => {
                         self.scroll = 0; self.view = View::History;
                     }
-                    KeyCode::Char('d') => {
+                    KeyCode::Char('d') if self.dashboard_state.detail.is_none() => {
                         self.sessions_state = sessions::SessionsState::default();
                         self.view = View::ClaudeCode;
                     }
-                    KeyCode::Char('c') => {
+                    KeyCode::Char('c') if self.dashboard_state.detail.is_none() => {
                         self.cursor_state = cursor_view::CursorViewState::default();
                         self.view = View::Cursor;
                     }
