@@ -165,7 +165,7 @@ pub fn analyze_session(records: &[UsageRecord], session_id: &str) -> Option<Sess
     })
 }
 
-pub fn session_timeline(records: &[UsageRecord], session_id: &str) -> Option<SessionTimeline> {
+pub fn session_timeline(records: &[UsageRecord], session_id: &str, ceiling: Option<u64>) -> Option<SessionTimeline> {
     let mut recs: Vec<&UsageRecord> = records
         .iter()
         .filter(|r| r.session_id == session_id)
@@ -173,7 +173,7 @@ pub fn session_timeline(records: &[UsageRecord], session_id: &str) -> Option<Ses
     if recs.is_empty() { return None; }
     recs.sort_by_key(|r| r.timestamp);
 
-    let ceiling = 167_000.0f64;
+    let ceiling_f = ceiling.map(|c| c as f64);
     let mut turns = Vec::new();
     let mut compaction_count = 0usize;
     let mut prev_ctx = 0u64;
@@ -195,7 +195,7 @@ pub fn session_timeline(records: &[UsageRecord], session_id: &str) -> Option<Ses
             cost,
             output_tokens: r.output_tokens,
             is_compaction,
-            context_pct: (ctx as f64 / ceiling * 100.0).min(100.0),
+            context_pct: ceiling_f.map(|c| (ctx as f64 / c * 100.0).min(100.0)).unwrap_or(0.0),
         });
         prev_ctx = ctx;
     }
@@ -213,4 +213,69 @@ pub fn session_timeline(records: &[UsageRecord], session_id: &str) -> Option<Ses
         duration_minutes,
         compaction_count,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HealthStatus {
+    Fresh,
+    Healthy,
+    Aging,
+    CtxRot,
+    Done,
+    Aborted,
+}
+
+impl HealthStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Fresh => "fresh",
+            Self::Healthy => "healthy",
+            Self::Aging => "aging",
+            Self::CtxRot => "ctx rot",
+            Self::Done => "done",
+            Self::Aborted => "aborted",
+        }
+    }
+
+    pub fn sort_order(&self) -> u8 {
+        match self {
+            Self::CtxRot => 5,
+            Self::Aging => 4,
+            Self::Healthy => 3,
+            Self::Fresh => 2,
+            Self::Done => 1,
+            Self::Aborted => 0,
+        }
+    }
+}
+
+/// Compute health status for a session.
+/// When ceiling is known, use context fill percentage.
+/// When unknown, use multi-factor analysis (growth, efficiency, compactions).
+pub fn health_status(
+    analysis: &SessionAnalysis,
+    ceiling: Option<u64>,
+    is_live: bool,
+    warn_pct: f64,
+    danger_pct: f64,
+) -> HealthStatus {
+    if !is_live { return HealthStatus::Done; }
+
+    if let Some(ceil) = ceiling {
+        let fill_pct = analysis.context_current as f64 / ceil as f64 * 100.0;
+        if fill_pct >= danger_pct { return HealthStatus::CtxRot; }
+        if fill_pct >= warn_pct { return HealthStatus::Aging; }
+        if fill_pct < warn_pct * 0.6 { return HealthStatus::Fresh; }
+        return HealthStatus::Healthy;
+    }
+
+    // No ceiling: use multi-factor heuristics
+    if analysis.context_growth > 6.0 && analysis.output_efficiency < 0.1 {
+        return HealthStatus::CtxRot;
+    }
+    if analysis.context_growth > 4.0 && analysis.messages_since_compaction > 30 {
+        return HealthStatus::Aging;
+    }
+    if analysis.context_growth < 2.0 { return HealthStatus::Fresh; }
+    HealthStatus::Healthy
 }

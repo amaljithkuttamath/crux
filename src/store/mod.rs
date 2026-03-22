@@ -7,7 +7,7 @@ use crate::pricing;
 use chrono::{Duration, NaiveDate, Utc};
 use std::collections::{HashMap, HashSet};
 
-pub use analysis::{SessionAnalysis, SessionTimeline};
+pub use analysis::{HealthStatus, SessionAnalysis, SessionTimeline};
 pub use cursor::{CursorModelStat, CursorOverviewStats};
 
 #[derive(Clone, Default)]
@@ -304,7 +304,9 @@ impl Store {
     }
 
     pub fn session_timeline(&self, session_id: &str) -> Option<SessionTimeline> {
-        analysis::session_timeline(&self.records, session_id)
+        let ceiling = self.session_meta(session_id)
+            .and_then(|m| m.context_token_limit);
+        analysis::session_timeline(&self.records, session_id, ceiling)
     }
 
     pub fn session_tokens(&self, session_id: &str) -> (u64, u64) {
