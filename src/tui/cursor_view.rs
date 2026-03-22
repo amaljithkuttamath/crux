@@ -250,26 +250,11 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(vec![kpi_line1, model_line, spark_line]), chunks[3]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
-    // ── Column headers (aligned to row spans) ──
-    let name_w = (w as usize).saturating_sub(85).max(8);
-    let col_header = Line::from(vec![
-        Span::styled(format!("    {:<width$}", "SESSION", width = name_w), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:<12}", "MODEL"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!(" {:>5}", "DUR"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:>6}", "COST"), Style::default().fg(FG_FAINT)),
-        Span::styled("  CTX  ", Style::default().fg(FG_FAINT)),
-        Span::styled(format!("  {:<7}", "STATUS"), Style::default().fg(FG_FAINT)),
-        Span::styled(format!(" {:>6}", "AGE"), Style::default().fg(FG_FAINT)),
-        Span::styled("  MODE", Style::default().fg(FG_FAINT)),
-    ]);
-    frame.render_widget(Paragraph::new(col_header), chunks[5]);
+    // ── Session table using ratatui Table for proper column alignment ──
+    let max_rows = (chunks[5].height + chunks[6].height) as usize;
 
-    // ── Session list (sorted, filtered) ──
-    let max_rows = chunks[6].height as usize;
-    let mut lines: Vec<Line> = Vec::new();
-
-    if state.cursor >= state.scroll + max_rows {
-        state.scroll = state.cursor.saturating_sub(max_rows - 1);
+    if state.cursor >= state.scroll + max_rows.saturating_sub(1) {
+        state.scroll = state.cursor.saturating_sub(max_rows.saturating_sub(2));
     }
     if state.cursor < state.scroll {
         state.scroll = state.cursor;
@@ -277,10 +262,16 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
     let visible_sessions: Vec<&SessionMeta> = sorted.iter()
         .skip(state.scroll)
-        .take(max_rows)
+        .take(max_rows.saturating_sub(1))
         .copied()
         .collect();
 
+    let header_cells = ["SESSION", "MODEL", "DUR", "COST", "CTX", "STATUS", "AGE", "MODE"]
+        .iter()
+        .map(|h| Cell::from(Span::styled(*h, Style::default().fg(FG_FAINT))));
+    let header_row = Row::new(header_cells);
+
+    let mut table_rows: Vec<Row> = Vec::new();
     for (vi, session) in visible_sessions.iter().enumerate() {
         let i = vi + state.scroll;
         let is_selected = i == state.cursor;
@@ -303,14 +294,12 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             _ => session.context_usage_pct.unwrap_or(0.0),
         };
 
-        // STATUS: live sessions get health_status(), completed get mapped status
+        // STATUS
         let (status_text, status_color) = if is_live {
             let analysis_opt = store.analyze_session(&session.session_id);
             if let Some(ref a) = analysis_opt {
                 let ceiling = session.context_token_limit;
-                let warn = config.context_warn_pct;
-                let danger = config.context_danger_pct;
-                let hs = analysis::health_status(a, ceiling, true, warn, danger);
+                let hs = analysis::health_status(a, ceiling, true, config.context_warn_pct, config.context_danger_pct);
                 (hs.label().to_string(), health_color(&hs))
             } else {
                 ("active".to_string(), GREEN)
@@ -323,7 +312,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             }
         };
 
-        // AGE: elapsed for live, "Xh ago" for completed
+        // AGE
         let age_str = if is_live {
             let elapsed = (now - session.start_time).num_minutes();
             if elapsed >= 60 { format!("{}h{:02}m", elapsed / 60, elapsed % 60) } else { format!("{}m", elapsed.max(1)) }
@@ -340,36 +329,53 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         };
 
         let fg = if is_selected { FG } else { FG_MUTED };
-        let cursor_char = if is_selected { "\u{25b8}" } else { " " };
-        let topic = truncate(&session.first_message, name_w);
+        let cursor_char = if is_selected { "\u{25b8} " } else { "  " };
 
-        let mut row_spans = vec![
-            Span::styled(format!("  {} ", cursor_char), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-            Span::styled(format!("{:<width$}", topic, width = name_w), Style::default().fg(fg)),
-            Span::styled(format!("  {:<12}", model_short), Style::default().fg(FG_FAINT)),
-            Span::styled(format!(" {:>5}", dur_str), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {:>6}", cost_str), Style::default().fg(FG_MUTED)),
-            Span::styled("  ", Style::default()),
+        let cells = vec![
+            Cell::from(Line::from(vec![
+                Span::styled(cursor_char.to_string(), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
+                Span::styled(session.first_message.clone(), Style::default().fg(fg)),
+            ])),
+            Cell::from(Span::styled(model_short, Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(dur_str, Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(cost_str, Style::default().fg(FG_MUTED))),
+            Cell::from(Line::from(mini_bar(ctx_pct))),
+            Cell::from(Span::styled(status_text, Style::default().fg(status_color))),
+            Cell::from(Span::styled(age_str, Style::default().fg(FG_FAINT))),
+            Cell::from(Span::styled(mode_str.to_string(), Style::default().fg(if mode_str == "agent" { PURPLE } else { FG_FAINT }))),
         ];
-        row_spans.extend(mini_bar(ctx_pct));
-        row_spans.push(Span::styled(format!("  {:<7}", status_text), Style::default().fg(status_color)));
-        row_spans.push(Span::styled(format!(" {:>6}", age_str), Style::default().fg(FG_FAINT)));
-        row_spans.push(Span::styled(format!("  {}", mode_str), Style::default().fg(if mode_str == "agent" { PURPLE } else { FG_FAINT })));
-        lines.push(Line::from(row_spans));
+
+        table_rows.push(Row::new(cells));
     }
 
     if sorted.is_empty() {
-        let msg = if state.search_query.is_empty() {
-            "no cursor sessions found"
-        } else {
-            "no matching sessions"
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!("   {}", msg), Style::default().fg(FG_FAINT)),
-        ]));
+        let msg = if state.search_query.is_empty() { "no cursor sessions found" } else { "no matching sessions" };
+        table_rows.push(Row::new(vec![Cell::from(Span::styled(msg, Style::default().fg(FG_FAINT)))]));
     }
 
-    frame.render_widget(Paragraph::new(lines), chunks[6]);
+    let widths = [
+        Constraint::Min(20),          // SESSION (fills remaining)
+        Constraint::Length(12),        // MODEL
+        Constraint::Length(8),         // DUR
+        Constraint::Length(8),         // COST
+        Constraint::Length(5),         // CTX (mini-bar)
+        Constraint::Length(8),         // STATUS
+        Constraint::Length(9),         // AGE
+        Constraint::Length(6),         // MODE
+    ];
+
+    let table = Table::new(table_rows, widths)
+        .header(header_row.style(Style::default().fg(FG_FAINT)))
+        .column_spacing(1);
+
+    // Merge the header and list areas for the table
+    let table_rect = Rect {
+        x: chunks[5].x,
+        y: chunks[5].y,
+        width: chunks[5].width,
+        height: chunks[5].height + chunks[6].height,
+    };
+    frame.render_widget(table, table_rect);
     frame.render_widget(Paragraph::new(divider(w)), chunks[7]);
 
     // ── Help bar or search input ──
