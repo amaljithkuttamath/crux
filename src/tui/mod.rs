@@ -114,6 +114,28 @@ impl App {
                 }
             }
             View::ClaudeCode => {
+                // Search mode input handling
+                if self.sessions_state.search_active {
+                    match code {
+                        KeyCode::Esc => {
+                            self.sessions_state.search_active = false;
+                            self.sessions_state.search_query.clear();
+                        }
+                        KeyCode::Enter => {
+                            self.sessions_state.search_active = false;
+                        }
+                        KeyCode::Backspace => {
+                            self.sessions_state.search_query.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            self.sessions_state.search_query.push(c);
+                            self.sessions_state.cursor = 0;
+                            self.sessions_state.scroll = 0;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
                     KeyCode::Up | KeyCode::Char('k') => self.sessions_state.move_up(),
@@ -126,6 +148,12 @@ impl App {
                         if !self.sessions_state.back() {
                             self.view = View::Overview;
                         }
+                    }
+                    KeyCode::Char('s') if self.sessions_state.detail.is_none() => {
+                        self.sessions_state.sort_column = self.sessions_state.sort_column.next();
+                    }
+                    KeyCode::Char('/') if self.sessions_state.detail.is_none() => {
+                        self.sessions_state.search_active = true;
                     }
                     KeyCode::Char('h') if self.sessions_state.detail.is_none() => {
                         self.scroll = 0; self.view = View::History;
@@ -142,6 +170,28 @@ impl App {
                 }
             }
             View::Cursor => {
+                // Search mode input handling
+                if self.cursor_state.search_active {
+                    match code {
+                        KeyCode::Esc => {
+                            self.cursor_state.search_active = false;
+                            self.cursor_state.search_query.clear();
+                        }
+                        KeyCode::Enter => {
+                            self.cursor_state.search_active = false;
+                        }
+                        KeyCode::Backspace => {
+                            self.cursor_state.search_query.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            self.cursor_state.search_query.push(c);
+                            self.cursor_state.cursor = 0;
+                            self.cursor_state.scroll = 0;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
                     KeyCode::Up | KeyCode::Char('k') => self.cursor_state.move_up(),
@@ -151,9 +201,22 @@ impl App {
                     }
                     KeyCode::Enter => self.cursor_state.enter(&self.store),
                     KeyCode::Esc => {
-                        if !self.cursor_state.back() {
+                        if !self.cursor_state.search_query.is_empty() {
+                            self.cursor_state.search_query.clear();
+                            self.cursor_state.cursor = 0;
+                            self.cursor_state.scroll = 0;
+                        } else if !self.cursor_state.back() {
                             self.view = View::Overview;
                         }
+                    }
+                    KeyCode::Char('s') if self.cursor_state.detail.is_none() => {
+                        self.cursor_state.sort_column = self.cursor_state.sort_column.next();
+                        self.cursor_state.cursor = 0;
+                        self.cursor_state.scroll = 0;
+                    }
+                    KeyCode::Char('/') if self.cursor_state.detail.is_none() => {
+                        self.cursor_state.search_active = true;
+                        self.cursor_state.search_query.clear();
                     }
                     KeyCode::Char('d') if self.cursor_state.detail.is_none() => {
                         self.sessions_state = sessions::SessionsState::default();
@@ -202,8 +265,8 @@ impl App {
         match self.view {
             View::Overview => dashboard::render(frame, &self.store, &self.config, &mut self.dashboard_state, &self.live_sessions),
             View::History => history::render(frame, &self.store, &self.config, self.scroll),
-            View::ClaudeCode => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state),
-            View::Cursor => cursor_view::render(frame, &self.store, &self.config, &mut self.cursor_state),
+            View::ClaudeCode => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state, &self.live_sessions),
+            View::Cursor => cursor_view::render(frame, &self.store, &self.config, &mut self.cursor_state, &self.live_sessions),
         }
 
         if self.show_help {
