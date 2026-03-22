@@ -254,7 +254,7 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     let col_header = Line::from(vec![
         Span::styled("      SESSION", Style::default().fg(FG_FAINT)),
         Span::styled(
-            format!("{} MODEL         DUR    COST    CTX       STATUS  AGE    MODE",
+            format!("{} MODEL         DUR    COST  CTX    STATUS  AGE    MODE",
                 " ".repeat((w as usize).saturating_sub(85).max(1))),
             Style::default().fg(FG_FAINT),
         ),
@@ -292,17 +292,13 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         let model = store.session_model(&session.session_id);
         let model_short = truncate_model(&model, 12);
 
-        // CTX: Cursor always has context_token_limit, show "142K/200K 71%"
-        let ctx_str = match (session.context_tokens_used, session.context_token_limit) {
-            (Some(used), Some(limit)) => {
-                let pct = if limit > 0 { used as f64 / limit as f64 * 100.0 } else { 0.0 };
-                format!("{}/{} {:.0}%", compact(used), compact(limit), pct)
+        // CTX: mini-bar from context usage percentage
+        let ctx_pct = match (session.context_tokens_used, session.context_token_limit) {
+            (Some(used), Some(limit)) if limit > 0 => {
+                (used as f64 / limit as f64 * 100.0).min(100.0)
             }
-            _ => session.context_usage_pct.map(|p| format!("{:.0}%", p)).unwrap_or_default(),
+            _ => session.context_usage_pct.unwrap_or(0.0),
         };
-        let ctx_color = session.context_usage_pct
-            .map(|p| if p > 85.0 { RED } else if p > 60.0 { YELLOW } else { FG_FAINT })
-            .unwrap_or(FG_FAINT);
 
         // STATUS: live sessions get health_status(), completed get mapped status
         let (status_text, status_color) = if is_live {
@@ -345,17 +341,19 @@ fn render_main(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         let name_w = (w as usize).saturating_sub(85).max(8);
         let topic = truncate(&session.first_message, name_w);
 
-        lines.push(Line::from(vec![
+        let mut row_spans = vec![
             Span::styled(format!("  {} ", cursor_char), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
             Span::styled(format!("{:<width$}", topic, width = name_w), Style::default().fg(fg)),
             Span::styled(format!("  {:<12}", model_short), Style::default().fg(FG_FAINT)),
             Span::styled(format!(" {:>5}", dur_str), Style::default().fg(FG_FAINT)),
             Span::styled(format!("  {:>6}", cost_str), Style::default().fg(FG_MUTED)),
-            Span::styled(format!("  {:>9}", ctx_str), Style::default().fg(ctx_color)),
-            Span::styled(format!("  {:<7}", status_text), Style::default().fg(status_color)),
-            Span::styled(format!(" {:>6}", age_str), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {}", mode_str), Style::default().fg(if mode_str == "agent" { PURPLE } else { FG_FAINT })),
-        ]));
+            Span::styled("  ", Style::default()),
+        ];
+        row_spans.extend(mini_bar(ctx_pct));
+        row_spans.push(Span::styled(format!("  {:<7}", status_text), Style::default().fg(status_color)));
+        row_spans.push(Span::styled(format!(" {:>6}", age_str), Style::default().fg(FG_FAINT)));
+        row_spans.push(Span::styled(format!("  {}", mode_str), Style::default().fg(if mode_str == "agent" { PURPLE } else { FG_FAINT })));
+        lines.push(Line::from(row_spans));
     }
 
     if sorted.is_empty() {
