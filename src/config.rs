@@ -36,6 +36,13 @@ pub struct Config {
     // Cursor IDE integration
     pub enable_cursor: bool,
     pub cursor_data_path: Option<String>,
+
+    // v3 dashboard
+    pub context_warn_pct: f64,
+    pub context_danger_pct: f64,
+    pub live_check_interval: String,
+    pub default_sort: String,
+    pub default_view: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -69,6 +76,11 @@ impl Default for Config {
             watch_paths: Vec::new(),
             enable_cursor: true,
             cursor_data_path: None,
+            context_warn_pct: 70.0,
+            context_danger_pct: 90.0,
+            live_check_interval: "5s".to_string(),
+            default_sort: "cost".to_string(),
+            default_view: "overview".to_string(),
         }
     }
 }
@@ -114,6 +126,10 @@ impl Config {
             None => default_cursor_path(),
         };
         if path.exists() { Some(path) } else { None }
+    }
+
+    pub fn live_check_interval_duration(&self) -> std::time::Duration {
+        parse_std_duration(&self.live_check_interval).unwrap_or(std::time::Duration::from_secs(5))
     }
 
     pub fn is_excluded(&self, project: &str) -> bool {
