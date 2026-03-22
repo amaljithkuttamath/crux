@@ -53,6 +53,9 @@ pub struct SessionMeta {
     pub cursor_todos: Option<Vec<CursorTodo>>,
     pub is_agentic: Option<bool>,
     pub subagent_count: Option<usize>,
+    pub parent_session_id: Option<String>,
+    pub is_subagent: bool,
+    pub agent_type: Option<String>,
 }
 
 impl SessionMeta {
@@ -166,6 +169,9 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         cursor_todos: None,
         is_agentic: None,
         subagent_count: None,
+        parent_session_id: None,
+        is_subagent: false,
+        agent_type: None,
     })
 }
 

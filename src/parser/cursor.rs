@@ -155,6 +155,9 @@ pub fn parse_cursor_db(db_path: &str) -> anyhow::Result<(Vec<UsageRecord>, Vec<S
             cursor_todos,
             is_agentic,
             subagent_count,
+            parent_session_id: None,
+            is_subagent: false,
+            agent_type: None,
         });
     }
 
