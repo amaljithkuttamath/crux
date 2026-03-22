@@ -2,10 +2,42 @@ use crate::config::Config;
 use crate::parser::conversation::{self, ConversationMessage};
 use crate::pricing;
 use crate::store::Store;
+use crate::store::analysis;
 use super::widgets::*;
-use chrono::{Datelike, Utc};
+use chrono::Utc;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
+
+#[derive(Default, Clone, Copy, PartialEq)]
+pub enum SortColumn {
+    #[default]
+    Cost,
+    Age,
+    Ctx,
+    Status,
+    Duration,
+}
+
+impl SortColumn {
+    pub fn next(&self) -> Self {
+        match self {
+            Self::Cost => Self::Age,
+            Self::Age => Self::Ctx,
+            Self::Ctx => Self::Status,
+            Self::Status => Self::Duration,
+            Self::Duration => Self::Cost,
+        }
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Cost => "cost",
+            Self::Age => "age",
+            Self::Ctx => "ctx",
+            Self::Status => "status",
+            Self::Duration => "duration",
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct SessionsState {
@@ -13,6 +45,9 @@ pub struct SessionsState {
     pub scroll: usize,
     pub detail: Option<SessionDetail>,
     pub detail_scroll: usize,
+    pub sort_column: SortColumn,
+    pub search_active: bool,
+    pub search_query: String,
 }
 
 pub struct SessionDetail {
@@ -56,11 +91,11 @@ impl SessionsState {
     }
 }
 
-pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut SessionsState) {
+pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state: &mut SessionsState, live_sessions: &std::collections::HashMap<String, bool>) {
     if state.detail.is_some() {
         render_detail(frame, store, config, state);
     } else {
-        render_list(frame, store, config, state);
+        render_list(frame, store, config, state, live_sessions);
     }
 }
 
@@ -68,56 +103,99 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, config: &Config, state:
 //  Claude Code full view: daily cost BarChart + model breakdown + sessions
 // ════════════════════════════════════════════════════════════════════════
 
-fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &mut SessionsState) {
+fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, state: &mut SessionsState, live_sessions: &std::collections::HashMap<String, bool>) {
     let area = frame.area();
     let w = area.width;
-    let sessions = store.sessions_by_source(crate::parser::Source::ClaudeCode);
+    let all_sessions = store.sessions_by_source(crate::parser::Source::ClaudeCode);
+
+    // Filter to non-subagent parent sessions (subagents rendered inline)
+    let parent_sessions: Vec<&&crate::parser::conversation::SessionMeta> = all_sessions.iter()
+        .filter(|s| !s.is_subagent)
+        .collect();
+
+    // Apply search filter
+    let query_lower = state.search_query.to_lowercase();
+    let filtered: Vec<&&crate::parser::conversation::SessionMeta> = if state.search_query.is_empty() {
+        parent_sessions
+    } else {
+        parent_sessions.into_iter()
+            .filter(|s| s.first_message.to_lowercase().contains(&query_lower))
+            .collect()
+    };
+
+    // Partition into active vs completed
+    let mut active: Vec<(&crate::parser::conversation::SessionMeta, Option<crate::store::SessionAnalysis>)> = Vec::new();
+    let mut completed: Vec<(&crate::parser::conversation::SessionMeta, Option<crate::store::SessionAnalysis>)> = Vec::new();
+
+    for s in &filtered {
+        let is_live = live_sessions.get(&s.session_id).copied().unwrap_or(false);
+        let ana = store.analyze_session(&s.session_id);
+        if is_live {
+            active.push((s, ana));
+        } else {
+            completed.push((s, ana));
+        }
+    }
+
+    // Sort within groups
+    sort_sessions(&mut active, state.sort_column);
+    sort_sessions(&mut completed, state.sort_column);
+
+    let active_count = active.len();
+    let session_count = filtered.len();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(1),   // title
+            Constraint::Length(2),   // nav header
+            Constraint::Length(1),   // source header
             Constraint::Length(1),   // divider
             Constraint::Length(4),   // daily cost bars + model breakdown
             Constraint::Length(1),   // divider
+            Constraint::Length(1),   // column headers
             Constraint::Min(4),     // session list
             Constraint::Length(1),   // divider
-            Constraint::Length(1),   // help
+            Constraint::Length(1),   // help / search
         ])
         .split(area);
 
-    // ── Title ──
-    let session_count = sessions.len();
-    let total_cost: f64 = sessions.iter()
-        .map(|s| store.session_cost(&s.session_id))
-        .sum();
+    // ── Nav header ──
+    let nav = nav_header("claude_code", w);
+    frame.render_widget(Paragraph::new(nav), chunks[0]);
+
+    // ── Source header ──
     let today = store.today_by_source(crate::parser::Source::ClaudeCode);
-    let title = Line::from(vec![
+    let source_header = Line::from(vec![
         Span::styled("   ", Style::default()),
         Span::styled("\u{25cf}", Style::default().fg(ACCENT2)),
         Span::styled(" Claude Code", Style::default().fg(FG).bold()),
         Span::styled(
-            format!("{}{} today  {} total  {} sessions",
-                " ".repeat((w as usize).saturating_sub(60).max(1)),
+            format!("  {} today  {} sessions  {} active",
                 pricing::format_cost(today.cost),
-                pricing::format_cost(total_cost),
                 session_count,
+                active_count,
             ),
             Style::default().fg(FG_MUTED),
         ),
+        Span::styled(
+            format!("{}sort: {}\u{25bc}",
+                " ".repeat((w as usize).saturating_sub(65).max(1)),
+                state.sort_column.label(),
+            ),
+            Style::default().fg(FG_FAINT),
+        ),
     ]);
-    frame.render_widget(Paragraph::new(title), chunks[0]);
-    frame.render_widget(Paragraph::new(divider(w)), chunks[1]);
+    frame.render_widget(Paragraph::new(source_header), chunks[1]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
 
-    // ── Top zone: 7-day cost bars + model split ──
+    // ── Top zone: 7-day cost bars + model split (PRESERVED) ──
     let days = store.by_day(7);
     let max_cost = days.iter().map(|d| d.cost).fold(0.0f64, f64::max).max(0.01);
     let bar_w = 10usize;
 
     let mut top_lines: Vec<Line> = Vec::new();
 
-    // Daily cost bars (last 7 days, horizontal)
     let today_date = chrono::Utc::now().date_naive();
     for day in days.iter().take(4) {
         let is_today = day.date == today_date;
@@ -134,7 +212,6 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
         ]));
     }
 
-    // Model breakdown on remaining lines
     let models = store.by_model();
     if !models.is_empty() && top_lines.len() < 4 {
         let mut model_spans: Vec<Span> = vec![Span::styled("   models  ", Style::default().fg(FG_FAINT))];
@@ -154,118 +231,291 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, _config: &Config, stat
     }
 
     while top_lines.len() < 4 { top_lines.push(Line::from(Span::raw(""))); }
-    frame.render_widget(Paragraph::new(top_lines), chunks[2]);
-    frame.render_widget(Paragraph::new(divider(w)), chunks[3]);
+    frame.render_widget(Paragraph::new(top_lines), chunks[3]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
 
-    // ── Session list with date grouping ──
-    let max_rows = chunks[4].height as usize;
-    let mut lines: Vec<Line> = Vec::new();
-    let mut current_date_label = String::new();
-    let now = Utc::now();
+    // ── Column headers ──
+    let name_w = (w as usize).saturating_sub(62).max(8);
+    let col_header = Line::from(vec![
+        Span::styled(format!("   {:<width$}", "SESSION", width = name_w), Style::default().fg(FG_FAINT)),
+        Span::styled("  MODEL ", Style::default().fg(FG_FAINT)),
+        Span::styled("  DUR ", Style::default().fg(FG_FAINT)),
+        Span::styled("    COST", Style::default().fg(FG_FAINT)),
+        Span::styled("  CTX       ", Style::default().fg(FG_FAINT)),
+        Span::styled(" STATUS ", Style::default().fg(FG_FAINT)),
+        Span::styled(" AGE", Style::default().fg(FG_FAINT)),
+    ]);
+    frame.render_widget(Paragraph::new(col_header), chunks[5]);
 
-    if state.cursor >= state.scroll + max_rows {
-        state.scroll = state.cursor.saturating_sub(max_rows - 1);
+    // ── Session list: active on top, then completed ──
+    let max_rows = chunks[6].height as usize;
+
+    // Build flat list of display rows
+    #[allow(dead_code)]
+    struct DisplayRow {
+        session_id: String,
+        is_active: bool,
+        is_subagent: bool,
+        tree_prefix: String,
+        topic: String,
+        model_str: String,
+        dur_str: String,
+        cost: f64,
+        ctx_str: String,
+        status_label: String,
+        status_color: Color,
+        age_str: String,
     }
-    if state.cursor < state.scroll { state.scroll = state.cursor; }
 
-    let mut row_idx = 0usize;
-    let mut visible_row = 0usize;
+    let mut rows: Vec<DisplayRow> = Vec::new();
 
-    for (i, session) in sessions.iter().enumerate() {
-        let date = session.start_time.date_naive();
-        let label = if date == now.date_naive() { "TODAY".to_string() }
-            else if date == (now - chrono::Duration::days(1)).date_naive() { "YESTERDAY".to_string() }
-            else { format!("{} {}", month_abbrev(date.month()), date.day()) };
+    let build_rows = |sessions: &[(&crate::parser::conversation::SessionMeta, Option<crate::store::SessionAnalysis>)], is_active_group: bool, rows: &mut Vec<DisplayRow>| {
+        for (meta, ana) in sessions {
+            let cost = ana.as_ref().map(|a| a.total_cost).unwrap_or(0.0);
+            let duration = meta.duration_minutes();
+            let dur_str = if duration >= 60 { format!("{}h{:02}", duration / 60, duration % 60) } else { format!("{}m", duration.max(1)) };
 
-        if label != current_date_label {
-            if row_idx >= state.scroll && visible_row < max_rows {
-                if !current_date_label.is_empty() {
-                    lines.push(Line::from(Span::raw("")));
-                    visible_row += 1;
-                    if visible_row >= max_rows { break; }
-                }
-                lines.push(Line::from(vec![
-                    Span::styled(format!("   {}", label), Style::default().fg(FG_MUTED).bold()),
-                ]));
-                visible_row += 1;
+            let raw_model = store.session_model(&meta.session_id);
+            let model_str = crate::store::simplify_model(&raw_model);
+
+            // CTX display
+            let ctx_str = if let Some(limit) = meta.context_token_limit {
+                let current = ana.as_ref().map(|a| a.context_current).unwrap_or(0);
+                let pct = if limit > 0 { (current as f64 / limit as f64 * 100.0).min(100.0) } else { 0.0 };
+                format!("{}/{} {:.0}%", compact(current), compact(limit), pct)
+            } else {
+                let current = ana.as_ref().map(|a| a.context_current).unwrap_or(0);
+                if current > 0 { format!("{} tokens", compact(current)) } else { "--".to_string() }
+            };
+
+            // Status
+            let is_live = is_active_group;
+            let (status_label, status_color) = if let Some(a) = ana {
+                let ceiling = meta.context_token_limit;
+                let hs = analysis::health_status(a, ceiling, is_live, 60.0, 85.0);
+                (hs.label().to_string(), health_color(&hs))
+            } else if is_live {
+                ("running".to_string(), GREEN)
+            } else {
+                ("done".to_string(), FG_FAINT)
+            };
+
+            // Age
+            let age_str = if is_live {
+                let elapsed = (Utc::now() - meta.start_time).num_minutes();
+                if elapsed >= 60 { format!("{}h{:02}", elapsed / 60, elapsed % 60) } else { format!("{}m", elapsed.max(1)) }
+            } else {
+                format_ago(meta.end_time)
+            };
+
+            let prefix = if is_active_group { "\u{25b6} ".to_string() } else { "  ".to_string() };
+
+            rows.push(DisplayRow {
+                session_id: meta.session_id.clone(),
+                is_active: is_active_group,
+                is_subagent: false,
+                tree_prefix: prefix,
+                topic: meta.first_message.clone(),
+                model_str,
+                dur_str,
+                cost,
+                ctx_str,
+                status_label,
+                status_color,
+                age_str,
+            });
+
+            // Find subagents for this session
+            let subagents: Vec<&crate::parser::conversation::SessionMeta> = all_sessions.iter()
+                .filter(|s| s.parent_session_id.as_deref() == Some(&meta.session_id))
+                .copied()
+                .collect();
+
+            for (si, sub) in subagents.iter().enumerate() {
+                let is_last = si == subagents.len() - 1;
+                let tree_char = if is_last { "\u{2514}\u{2500} " } else { "\u{251c}\u{2500} " };
+
+                let sub_ana = store.analyze_session(&sub.session_id);
+                let sub_cost = sub_ana.as_ref().map(|a| a.total_cost).unwrap_or(0.0);
+                let sub_dur = sub.duration_minutes();
+                let sub_dur_str = if sub_dur >= 60 { format!("{}h{:02}", sub_dur / 60, sub_dur % 60) } else { format!("{}m", sub_dur.max(1)) };
+                let sub_model = crate::store::simplify_model(&store.session_model(&sub.session_id));
+                let sub_is_live = live_sessions.get(&sub.session_id).copied().unwrap_or(false);
+                let sub_status = if sub_is_live { "running" } else { "done" };
+                let sub_status_color = if sub_is_live { GREEN } else { FG_FAINT };
+                let sub_name = sub.agent_type.clone().unwrap_or_else(|| "subagent".to_string());
+
+                rows.push(DisplayRow {
+                    session_id: sub.session_id.clone(),
+                    is_active: false,
+                    is_subagent: true,
+                    tree_prefix: format!("  {}", tree_char),
+                    topic: sub_name,
+                    model_str: sub_model,
+                    dur_str: sub_dur_str,
+                    cost: sub_cost,
+                    ctx_str: "--".to_string(),
+                    status_label: sub_status.to_string(),
+                    status_color: sub_status_color,
+                    age_str: String::new(),
+                });
             }
-            current_date_label = label;
-            row_idx += 1;
-            if visible_row >= max_rows { break; }
+        }
+    };
+
+    build_rows(&active, true, &mut rows);
+
+    // Dashed separator between active and completed (only if both non-empty)
+    let need_separator = !active.is_empty() && !completed.is_empty();
+
+    build_rows(&completed, false, &mut rows);
+
+    // Adjust cursor bounds (only parent sessions are selectable, excluding subagent rows)
+    let selectable_count = rows.iter().filter(|r| !r.is_subagent).count();
+    if state.cursor >= selectable_count && selectable_count > 0 {
+        state.cursor = selectable_count - 1;
+    }
+
+    // Map cursor index to row index (skip subagent rows in cursor counting)
+    let mut cursor_row_idx: Option<usize> = None;
+    {
+        let mut selectable_i = 0usize;
+        for (ri, row) in rows.iter().enumerate() {
+            if !row.is_subagent {
+                if selectable_i == state.cursor {
+                    cursor_row_idx = Some(ri);
+                    break;
+                }
+                selectable_i += 1;
+            }
+        }
+    }
+
+    // Scrolling
+    let separator_extra = if need_separator { 1 } else { 0 };
+    let _total_display_rows = rows.len() + separator_extra;
+    if let Some(cri) = cursor_row_idx {
+        // Account for separator offset
+        let effective_row = if need_separator && cri >= active.len() { cri + 1 } else { cri };
+        if effective_row >= state.scroll + max_rows {
+            state.scroll = effective_row.saturating_sub(max_rows - 1);
+        }
+        if effective_row < state.scroll {
+            state.scroll = effective_row;
+        }
+    }
+
+    // Render rows
+    let mut lines: Vec<Line> = Vec::new();
+    let mut display_idx = 0usize;
+    let mut selectable_i = 0usize;
+    let active_row_count = {
+        let mut c = 0usize;
+        for r in &rows {
+            if r.is_active || r.is_subagent { c += 1; } else { break; }
+        }
+        c
+    };
+
+    for (ri, row) in rows.iter().enumerate() {
+        // Insert dashed separator between active and completed
+        if need_separator && ri == active_row_count {
+            if display_idx >= state.scroll && lines.len() < max_rows {
+                lines.push(dashed_divider(w));
+            }
+            display_idx += 1;
         }
 
-        if row_idx < state.scroll { row_idx += 1; continue; }
-        if visible_row >= max_rows { break; }
+        if display_idx < state.scroll {
+            display_idx += 1;
+            if !row.is_subagent { selectable_i += 1; }
+            continue;
+        }
+        if lines.len() >= max_rows { break; }
 
-        let is_selected = i == state.cursor;
-        let analysis = store.analyze_session(&session.session_id);
-        let cost = analysis.as_ref().map(|a| a.total_cost).unwrap_or(0.0);
-        let duration = session.duration_minutes();
-        let dur_str = if duration >= 60 { format!("{}h{:02}m", duration / 60, duration % 60) } else { format!("{}m", duration.max(1)) };
-        let time_str = session.start_time.format("%H:%M").to_string();
-
-        let ctx_pct = analysis.as_ref().map(|a| (a.context_current as f64 / 167_000.0 * 100.0).min(100.0)).unwrap_or(0.0);
-        let ctx_indicator = if ctx_pct > 85.0 { ("\u{25cf}", RED) }
-            else if ctx_pct > 60.0 { ("\u{25d0}", YELLOW) }
-            else { ("\u{25cb}", FG_FAINT) };
-
-        let tool_calls: usize = session.tool_counts.values().sum();
-        let tool_heavy = tool_calls as f64 / session.message_count.max(1) as f64 > 0.5;
-        let type_badge = if session.agent_spawns > 2 { "agt" }
-            else if tool_heavy { "tool" }
-            else { "chat" };
-
-        let grade = analysis.as_ref().map(|a| a.grade_letter()).unwrap_or("-");
-        let grade_color = match grade { "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED };
-
+        let is_selected = !row.is_subagent && selectable_i == state.cursor;
         let (fg_main, fg_sub) = if is_selected { (FG, ACCENT) } else { (FG_MUTED, FG_FAINT) };
-        let cursor_char = if is_selected { "\u{25b8}" } else { " " };
 
-        // Context sparkline from timeline
-        let ctx_spark = store.session_timeline(&session.session_id)
-            .map(|tl| {
-                let vals: Vec<f64> = tl.turns.iter().map(|t| t.context_pct).collect();
-                spark(&vals)
-            })
-            .unwrap_or_default();
-
-        let top_tools: String = session.tools_used.iter().take(2)
-            .map(|t| { let c = session.tool_counts.get(t).unwrap_or(&0); format!("{}({})", shorten_tool(t), c) })
-            .collect::<Vec<_>>().join(" ");
-
-        let name_w = (w as usize).saturating_sub(75).max(8);
-        let topic = truncate(&session.first_message, name_w);
+        let topic = truncate(&row.topic, name_w.saturating_sub(row.tree_prefix.chars().count()));
 
         lines.push(Line::from(vec![
-            Span::styled(format!("  {}", cursor_char), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-            Span::styled(ctx_indicator.0, Style::default().fg(ctx_indicator.1)),
-            Span::styled(format!(" {} ", time_str), Style::default().fg(fg_sub)),
-            Span::styled(format!("{:<width$}", topic, width = name_w), Style::default().fg(fg_main)),
-            Span::styled(format!(" {:>4}", dur_str), Style::default().fg(fg_sub)),
-            Span::styled(format!("  {:>7}", pricing::format_cost(cost)), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-            Span::styled(format!(" {}", ctx_spark), Style::default().fg(ctx_indicator.1)),
-            Span::styled(format!("{:>3.0}%", ctx_pct), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {}", grade), Style::default().fg(grade_color)),
-            Span::styled(format!("  {:<4}", type_badge), Style::default().fg(if type_badge == "agt" { PURPLE } else { FG_FAINT })),
-            Span::styled(top_tools, Style::default().fg(FG_FAINT)),
+            Span::styled(
+                format!("{}", &row.tree_prefix),
+                Style::default().fg(if row.is_active { GREEN } else if row.is_subagent { FG_FAINT } else if is_selected { ACCENT } else { FG_FAINT }),
+            ),
+            Span::styled(format!("{:<width$}", topic, width = name_w.saturating_sub(row.tree_prefix.chars().count())), Style::default().fg(fg_main)),
+            Span::styled(format!("  {:>6}", row.model_str), Style::default().fg(fg_sub)),
+            Span::styled(format!("  {:>4}", row.dur_str), Style::default().fg(fg_sub)),
+            Span::styled(format!("  {:>7}", pricing::format_cost(row.cost)), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
+            Span::styled(format!("  {:>10}", row.ctx_str), Style::default().fg(FG_FAINT)),
+            Span::styled(format!("  {:>7}", row.status_label), Style::default().fg(row.status_color)),
+            Span::styled(format!("  {}", row.age_str), Style::default().fg(FG_FAINT)),
         ]));
 
-        visible_row += 1;
-        row_idx += 1;
+        display_idx += 1;
+        if !row.is_subagent { selectable_i += 1; }
     }
 
-    frame.render_widget(Paragraph::new(lines), chunks[4]);
-    frame.render_widget(Paragraph::new(divider(w)), chunks[5]);
+    frame.render_widget(Paragraph::new(lines), chunks[6]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[7]);
 
-    let help = help_bar(&[
-        ("\u{2191}\u{2193}", "navigate"),
-        ("enter", "detail"),
-        ("esc", "back"),
-        ("c", "cursor"),
-        ("h", "history"),
-        ("q", "quit"),
-    ]);
-    frame.render_widget(Paragraph::new(help), chunks[6]);
+    // ── Help bar or search input ──
+    if state.search_active || !state.search_query.is_empty() {
+        let search_line = Line::from(vec![
+            Span::styled("   / ", Style::default().fg(ACCENT)),
+            Span::styled(format!("{}_", state.search_query), Style::default().fg(FG)),
+        ]);
+        frame.render_widget(Paragraph::new(search_line), chunks[8]);
+    } else {
+        let help = help_bar(&[
+            ("\u{2191}\u{2193}", "navigate"),
+            ("enter", "detail"),
+            ("s", "sort"),
+            ("/", "search"),
+            ("esc", "back"),
+        ]);
+        frame.render_widget(Paragraph::new(help), chunks[8]);
+    }
+}
+
+/// Sort a session list by the given column
+fn sort_sessions(
+    sessions: &mut Vec<(&crate::parser::conversation::SessionMeta, Option<crate::store::SessionAnalysis>)>,
+    col: SortColumn,
+) {
+    match col {
+        SortColumn::Cost => {
+            sessions.sort_by(|a, b| {
+                let ca = a.1.as_ref().map(|x| x.total_cost).unwrap_or(0.0);
+                let cb = b.1.as_ref().map(|x| x.total_cost).unwrap_or(0.0);
+                cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        SortColumn::Age => {
+            sessions.sort_by(|a, b| b.0.end_time.cmp(&a.0.end_time));
+        }
+        SortColumn::Duration => {
+            sessions.sort_by(|a, b| b.0.duration_minutes().cmp(&a.0.duration_minutes()));
+        }
+        SortColumn::Ctx => {
+            sessions.sort_by(|a, b| {
+                let ca = a.1.as_ref().map(|x| x.context_current).unwrap_or(0);
+                let cb = b.1.as_ref().map(|x| x.context_current).unwrap_or(0);
+                cb.cmp(&ca)
+            });
+        }
+        SortColumn::Status => {
+            sessions.sort_by(|a, b| {
+                let sa = a.1.as_ref().map(|x| {
+                    analysis::health_status(x, a.0.context_token_limit, false, 60.0, 85.0).sort_order()
+                }).unwrap_or(0);
+                let sb = b.1.as_ref().map(|x| {
+                    analysis::health_status(x, b.0.context_token_limit, false, 60.0, 85.0).sort_order()
+                }).unwrap_or(0);
+                sb.cmp(&sa)
+            });
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════
