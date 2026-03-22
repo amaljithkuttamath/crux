@@ -207,11 +207,11 @@ fn extract_model_version(raw: &str) -> String {
 
 /// Soft dashed divider for zone breaks: "─ ─ ─ ─"
 pub fn dashed_divider(width: u16) -> Line<'static> {
-    let pattern = "\u{2500} ";
-    let repeats = (width as usize) / 2;
-    let s: String = pattern.repeat(repeats);
+    let target_chars = width.saturating_sub(3) as usize;
+    let pairs = target_chars / 2;
+    let s: String = "\u{2500} ".repeat(pairs);
     Line::from(Span::styled(
-        format!("   {}", &s[..s.len().min(width.saturating_sub(3) as usize)]),
+        format!("   {s}"),
         Style::default().fg(FG_FAINT),
     ))
 }
