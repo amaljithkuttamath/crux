@@ -555,8 +555,13 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
         let dur_str = if dur >= 60 { format!("{}h{:02}m", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
         let date_str = meta.start_time.format("%Y-%m-%d %H:%M").to_string();
 
-        let grade = analysis.as_ref().map(|a| a.grade_letter()).unwrap_or("-");
-        let grade_c = match grade { "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED };
+        let ceiling = store.session_meta(&detail.session_id).and_then(|m| m.context_token_limit);
+        let health = if let Some(ref a) = analysis {
+            let status = analysis::health_status(a, ceiling, false, 70.0, 90.0);
+            (status.label(), health_color(&status))
+        } else {
+            ("", FG_FAINT)
+        };
 
         let header = vec![
             Line::from(vec![
@@ -568,7 +573,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
                 Span::styled(format!("  {}", display_project_name(&meta.project)), Style::default().fg(FG_MUTED)),
                 Span::styled(format!("  {}  {}  {}t", dur_str, pricing::format_cost(cost), meta.user_count),
                     Style::default().fg(FG_FAINT)),
-                Span::styled(format!("  {}", grade), Style::default().fg(grade_c).bold()),
+                Span::styled(format!("  {}", health.0), Style::default().fg(health.1).bold()),
             ]),
         ];
         frame.render_widget(Paragraph::new(header), chunks[0]);
@@ -577,7 +582,13 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
         let mut stat_lines: Vec<Line> = Vec::new();
 
         if let Some(a) = &analysis {
-            let ctx_pct = (a.context_current as f64 / 167_000.0 * 100.0).min(100.0);
+            let (ctx_pct, ctx_label) = if let Some(ceil) = ceiling {
+                let pct = (a.context_current as f64 / ceil as f64 * 100.0).min(100.0);
+                let label = format!("{}/{} {:.0}%", compact(a.context_current), compact(ceil), pct);
+                (pct, label)
+            } else {
+                (0.0, format!("{} tokens", compact(a.context_current)))
+            };
             let ctx_color = if ctx_pct > 85.0 { RED } else if ctx_pct > 60.0 { YELLOW } else { GREEN };
             let bar_w = 15usize;
             let (bf, be) = smooth_bar(ctx_pct, 100.0, bar_w);
@@ -586,7 +597,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
                 Span::styled("   ctx  ", Style::default().fg(FG_FAINT)),
                 Span::styled(bf, Style::default().fg(ctx_color)),
                 Span::styled(be, Style::default().fg(FG_FAINT)),
-                Span::styled(format!(" {:.0}%", ctx_pct), Style::default().fg(ctx_color).bold()),
+                Span::styled(format!("  {}", ctx_label), Style::default().fg(ctx_color).bold()),
                 Span::styled(format!("  {} \u{2192} {}", compact(a.context_initial), compact(a.context_current)),
                     Style::default().fg(FG_MUTED)),
                 Span::styled(format!("  {:.1}x growth", a.context_growth), Style::default().fg(FG_FAINT)),

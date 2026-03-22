@@ -312,13 +312,14 @@ fn render_source_block(
     }
 
     // Line 4: health alert if any session has context fill > danger threshold
-    let danger_pct = config.context_danger_pct;
     let has_danger = sessions.iter().any(|s| {
         store.analyze_session(&s.session_id)
             .map(|a| {
-                let ceiling = s.context_token_limit.unwrap_or(167_000);
-                let pct = a.context_current as f64 / ceiling as f64 * 100.0;
-                pct > danger_pct
+                let hs = crate::store::analysis::health_status(
+                    &a, s.context_token_limit, true,
+                    config.context_warn_pct, config.context_danger_pct,
+                );
+                hs == crate::store::analysis::HealthStatus::CtxRot
             })
             .unwrap_or(false)
     });
@@ -368,14 +369,13 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
         let dur = detail.timeline.duration_minutes;
         let dur_str = if dur >= 60 { format!("{}h{:02}m", dur / 60, dur % 60) } else { format!("{}m", dur.max(1)) };
 
-        let grade_str = if let Some(ref a) = analysis {
-            let g = a.grade_letter();
-            let gc = match g { "A" => GREEN, "B" => ACCENT, "C" => YELLOW, _ => RED };
-            (g, gc)
-        } else { ("-", FG_FAINT) };
-
-        let ctx_pct = analysis.as_ref().map(|a| (a.context_current as f64 / 167_000.0 * 100.0).min(100.0)).unwrap_or(0.0);
-        let health = analysis.as_ref().map(|a| session_health(a, ctx_pct)).unwrap_or(("", FG_FAINT));
+        let ceiling = store.session_meta(&detail.session_id).and_then(|m| m.context_token_limit);
+        let health = if let Some(ref a) = analysis {
+            let status = crate::store::analysis::health_status(a, ceiling, false, 70.0, 90.0);
+            (status.label(), health_color(&status))
+        } else {
+            ("", FG_FAINT)
+        };
 
         let source_badge = match meta.source {
             Source::ClaudeCode => ("\u{25cf} CC", ACCENT2),
@@ -392,11 +392,10 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
                 Span::styled(format!("  {}", display_project_name(&meta.project)), Style::default().fg(ACCENT)),
                 Span::styled(format!("  {}  {}  {}t", dur_str, pricing::format_cost(cost), meta.user_count),
                     Style::default().fg(FG_MUTED)),
-                Span::styled(format!("  {}", grade_str.0), Style::default().fg(grade_str.1).bold()),
+                Span::styled(format!("  {}", health.0), Style::default().fg(health.1).bold()),
                 if detail.timeline.compaction_count > 0 {
                     Span::styled(format!("  {} compactions", detail.timeline.compaction_count), Style::default().fg(YELLOW))
                 } else { Span::raw("") },
-                Span::styled(format!("  {}", health.0), Style::default().fg(health.1)),
             ]),
             Line::from(Span::raw("")),
         ];
@@ -485,17 +484,4 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, _config: &Config, st
 
     let help = help_bar(&[("esc", "back"), ("\u{2191}\u{2193}", "scroll"), ("q", "quit")]);
     frame.render_widget(Paragraph::new(help), chunks[4]);
-}
-
-fn session_health(analysis: &crate::store::SessionAnalysis, ctx_pct: f64) -> (&'static str, Color) {
-    if ctx_pct > 85.0 { return ("START NEW SESSION", RED); }
-    if analysis.context_growth > 6.0 && analysis.output_efficiency < 0.1 {
-        return ("YIELD DECLINING", RED);
-    }
-    if ctx_pct > 70.0 && analysis.context_growth > 4.0 { return ("SESSION AGING", YELLOW); }
-    if analysis.messages_since_compaction > 30 && analysis.context_growth > 3.0 {
-        return ("LONG SINCE COMPACTION", YELLOW);
-    }
-    if ctx_pct < 40.0 { return ("FRESH", GREEN); }
-    ("OK", FG_FAINT)
 }
