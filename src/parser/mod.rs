@@ -1,6 +1,7 @@
 pub mod watcher;
 pub mod conversation;
 pub mod cursor;
+pub mod liveness;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;

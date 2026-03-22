@@ -265,6 +265,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
+ "libc",
  "notify",
  "ratatui",
  "rmcp",
