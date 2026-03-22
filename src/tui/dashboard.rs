@@ -183,7 +183,7 @@ fn render_main(
     };
 
     if !budget_label.is_empty() {
-        let bar_w = (w as usize).saturating_sub(20).min(30).max(10);
+        let bar_w = (w as usize).saturating_sub(20).clamp(10, 30);
         let (bf, be) = smooth_bar(budget_pct, 100.0, bar_w);
         let color = if budget_pct > 90.0 { RED } else if budget_pct > 70.0 { YELLOW } else { GREEN };
         frame.render_widget(Paragraph::new(Line::from(vec![
@@ -320,12 +320,10 @@ fn render_main(
     let peak_cost = hourly.iter().map(|(c, _)| *c).fold(0.0f64, f64::max).max(0.01);
 
     let mut heatmap_chars = String::new();
-    for h in 6..=23 {
-        let (cost, _) = hourly[h];
+    for &(cost, _) in hourly.iter().take(24).skip(6) {
         let ratio = cost / peak_cost;
         let ch = if ratio <= 0.0 { '\u{00b7}' }
-            else if ratio < 0.33 { '\u{25aa}' }
-            else if ratio < 0.66 { '\u{25aa}' }
+            else if ratio < 0.5 { '\u{25aa}' }
             else { '\u{2588}' };
         heatmap_chars.push(ch);
     }
@@ -494,7 +492,7 @@ fn render_detail(
                 (pct, format!("{}/{}", compact(a.context_current), compact(ceil)))
             } else {
                 let pct = if a.context_peak > 0 { (a.context_current as f64 / a.context_peak as f64 * 100.0).min(100.0) } else { 0.0 };
-                (pct, format!("{}", compact(a.context_current)))
+                (pct, compact(a.context_current))
             };
 
             // Context bullet bar
@@ -652,7 +650,7 @@ fn render_detail(
         let start = turns.first().unwrap().timestamp;
         let end = turns.last().unwrap().timestamp;
         let total_minutes = (end - start).num_minutes().max(1);
-        let strip_w = (w as usize).saturating_sub(20).min(40).max(10);
+        let strip_w = (w as usize).saturating_sub(20).clamp(10, 40);
 
         let mut slots = vec![false; strip_w];
         for t in turns {
