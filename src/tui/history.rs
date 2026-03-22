@@ -32,25 +32,11 @@ pub fn render(frame: &mut ratatui::Frame, store: &Store, _config: &Config, scrol
         ])
         .split(area);
 
-    // ── Title with sparkline ──
-    let daily_costs: Vec<f64> = days.iter().take(14).rev().map(|d| d.cost).collect();
-    let spark_str = spark(&daily_costs);
+    // ── Nav header ──
     let total_30d: f64 = days.iter().map(|d| d.cost).sum();
-
-    let title = Line::from(vec![
-        Span::styled("   history", Style::default().fg(ACCENT).bold()),
-        Span::styled(
-            format!("{}14d ", " ".repeat((w as usize).saturating_sub(50))),
-            Style::default().fg(FG_FAINT),
-        ),
-        Span::styled(spark_str, Style::default().fg(ACCENT)),
-        Span::styled(
-            format!("  {} 30d total", pricing::format_cost(total_30d)),
-            Style::default().fg(FG_MUTED),
-        ),
-    ]);
-    frame.render_widget(Paragraph::new(title), chunks[0]);
-    frame.render_widget(Paragraph::new(divider(w)), chunks[1]);
+    let header = nav_header("history", w);
+    frame.render_widget(Paragraph::new(header[0].clone()), chunks[0]);
+    frame.render_widget(Paragraph::new(header[1].clone()), chunks[1]);
 
     // ── Cumulative trend + source split ──
     let mut trend_lines: Vec<Line> = Vec::new();
