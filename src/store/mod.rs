@@ -340,6 +340,7 @@ impl Store {
         streak
     }
 
+    #[allow(dead_code)]
     pub fn sessions_per_day(&self, days: usize) -> Vec<f64> {
         let day_data = self.by_day(days);
         let today = Utc::now().date_naive();
@@ -379,6 +380,7 @@ impl Store {
     }
 
     /// Today's savings (context growth premium) filtered by source
+    #[allow(dead_code)]
     pub fn today_savings_by_source(&self, source: Source) -> f64 {
         let today = Utc::now().date_naive();
         self.session_metas.iter()
@@ -389,6 +391,7 @@ impl Store {
     }
 
     /// Today's model usage breakdown
+    #[allow(dead_code)]
     pub fn today_by_model(&self) -> Vec<ModelSummary> {
         let today = Utc::now().date_naive();
         let mut map: HashMap<String, ModelSummary> = HashMap::new();
@@ -429,6 +432,46 @@ impl Store {
             .collect();
         sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
         sessions
+    }
+
+    /// Today's cost and session count per hour (0..24), for the hourly heatmap
+    pub fn today_by_hour(&self) -> Vec<(f64, usize)> {
+        use chrono::Timelike;
+        let today = Utc::now().date_naive();
+        let mut hours: Vec<(f64, HashSet<String>)> = (0..24).map(|_| (0.0, HashSet::new())).collect();
+        for r in &self.records {
+            if r.timestamp.date_naive() != today { continue; }
+            let h = r.timestamp.hour() as usize;
+            if h < 24 {
+                hours[h].0 += pricing::estimate_cost(
+                    &r.model, r.input_tokens, r.output_tokens,
+                    r.cache_creation_tokens, r.cache_read_tokens,
+                );
+                hours[h].1.insert(r.session_id.clone());
+            }
+        }
+        hours.into_iter().map(|(cost, sessions)| (cost, sessions.len())).collect()
+    }
+
+    /// Projects sorted by cost (descending), all-time
+    pub fn by_project_cost(&self) -> Vec<ProjectSummary> {
+        let mut projects = self.by_project();
+        projects.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+        projects
+    }
+
+    /// Daily costs for last N days (for sparklines), ordered oldest to newest
+    pub fn daily_costs(&self, days: usize) -> Vec<f64> {
+        let day_data = self.by_day(days);
+        let today = Utc::now().date_naive();
+        let mut result = vec![0.0; days];
+        for d in &day_data {
+            let age = (today - d.date).num_days() as usize;
+            if age < days {
+                result[days - 1 - age] = d.cost;
+            }
+        }
+        result
     }
 }
 

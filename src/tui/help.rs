@@ -119,6 +119,37 @@ pub fn render_help_overlay(frame: &mut ratatui::Frame) {
             Span::styled("Session aborted (Cursor only)", Style::default().fg(FG_MUTED)),
         ]),
         Line::from(Span::raw("")),
+        Line::from(Span::styled("  Visuals", Style::default().fg(ACCENT).bold())),
+        Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled("\u{2500}".repeat(7), Style::default().fg(FG_FAINT)),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2588}\u{2588}\u{2588}\u{2591}\u{2591}  ", Style::default().fg(GREEN)),
+            Span::styled("context/budget fill    ", Style::default().fg(FG_MUTED)),
+            Span::styled("green", Style::default().fg(GREEN)),
+            Span::styled(" < 60%    ", Style::default().fg(FG_MUTED)),
+            Span::styled("yellow", Style::default().fg(YELLOW)),
+            Span::styled(" < 85%    ", Style::default().fg(FG_MUTED)),
+            Span::styled("red", Style::default().fg(RED)),
+            Span::styled(" > 85%", Style::default().fg(FG_MUTED)),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2593}\u{2593}\u{2593}\u{2591}\u{2591}  ", Style::default().fg(GREEN)),
+            Span::styled("context mini-bar       same thresholds, compact form", Style::default().fg(FG_MUTED)),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2581}\u{2582}\u{2583}\u{2585}\u{2587}  ", Style::default().fg(ACCENT)),
+            Span::styled("sparkline              height = relative value in range", Style::default().fg(FG_MUTED)),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{25aa}\u{25aa}\u{00b7}\u{00b7}\u{25aa}  ", Style::default().fg(FG_MUTED)),
+            Span::styled("activity density       block = active    dot = idle gap", Style::default().fg(FG_MUTED)),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2588}\u{2588}\u{2588}\u{2588}  ", Style::default().fg(ACCENT)),
+            Span::styled("segmented bar          length = proportion of total", Style::default().fg(FG_MUTED)),
+        ]),
         Line::from(Span::raw("")),
         Line::from(vec![
             Span::styled("                                        Press ", Style::default().fg(FG_FAINT)),

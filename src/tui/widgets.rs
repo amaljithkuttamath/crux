@@ -198,9 +198,64 @@ pub fn health_color(status: &crate::store::analysis::HealthStatus) -> Color {
 }
 
 /// Dynamic model color assignment. Cycles through palette based on position.
+#[allow(dead_code)]
 pub fn model_color(index: usize) -> Color {
     const MODEL_COLORS: [Color; 3] = [PURPLE, ACCENT, ACCENT2];
     MODEL_COLORS[index % MODEL_COLORS.len()]
+}
+
+/// Context mini-bar: 5-char compact bar colored by threshold.
+/// Returns styled spans: e.g. "▓▓▓░░" with color based on pct.
+pub fn mini_bar(pct: f64) -> Vec<Span<'static>> {
+    let filled = ((pct / 100.0).clamp(0.0, 1.0) * 5.0).round() as usize;
+    let bar_f = "\u{2593}".repeat(filled);
+    let bar_e = "\u{2591}".repeat(5usize.saturating_sub(filled));
+    let color = if pct > 85.0 { RED } else if pct > 60.0 { YELLOW } else { GREEN };
+    vec![
+        Span::styled(bar_f, Style::default().fg(color)),
+        Span::styled(bar_e, Style::default().fg(FG_FAINT)),
+    ]
+}
+
+/// Activity density strip: block = active, dot = idle gap.
+/// `active` is a slice of booleans per slot.
+pub fn density_strip(active: &[bool]) -> String {
+    active.iter().map(|&a| if a { '\u{25aa}' } else { '\u{00b7}' }).collect()
+}
+
+/// Segmented bar: proportional breakdown rendered as a single bar.
+/// segments: Vec<(label, value, color)>. Total width in chars.
+pub fn segmented_bar(segments: &[(&str, f64, Color)], width: usize) -> Vec<Span<'static>> {
+    let total: f64 = segments.iter().map(|(_, v, _)| v).sum();
+    if total <= 0.0 || width == 0 {
+        return vec![Span::styled("\u{2591}".repeat(width), Style::default().fg(FG_FAINT))];
+    }
+    let mut spans = Vec::new();
+    let mut used = 0usize;
+    for (i, (label, value, color)) in segments.iter().enumerate() {
+        let seg_w = if i == segments.len() - 1 {
+            width.saturating_sub(used)
+        } else {
+            ((value / total) * width as f64).round() as usize
+        };
+        if seg_w == 0 { continue; }
+        // Fill with block chars, embed label if it fits
+        if label.len() + 2 <= seg_w {
+            let pad_left = (seg_w - label.len()) / 2;
+            let pad_right = seg_w - label.len() - pad_left;
+            let s = format!("{}{}{}", "\u{2588}".repeat(pad_left), label, "\u{2588}".repeat(pad_right));
+            spans.push(Span::styled(s, Style::default().fg(*color)));
+        } else {
+            spans.push(Span::styled("\u{2588}".repeat(seg_w), Style::default().fg(*color)));
+        }
+        used += seg_w;
+    }
+    spans
+}
+
+/// Color for context percentage based on thresholds
+pub fn ctx_color(pct: f64) -> Color {
+    if pct > 85.0 { RED } else if pct > 60.0 { YELLOW } else { GREEN }
 }
 
 /// Clean project name for display

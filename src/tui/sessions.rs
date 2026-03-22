@@ -151,8 +151,6 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             Constraint::Length(2),   // nav header
             Constraint::Length(1),   // source header
             Constraint::Length(1),   // divider
-            Constraint::Length(4),   // daily cost bars + model breakdown
-            Constraint::Length(1),   // divider
             Constraint::Length(1),   // column headers
             Constraint::Min(4),     // session list
             Constraint::Length(1),   // divider
@@ -189,51 +187,6 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
     frame.render_widget(Paragraph::new(source_header), chunks[1]);
     frame.render_widget(Paragraph::new(divider(w)), chunks[2]);
 
-    // ── Top zone: 7-day cost bars + model split (PRESERVED) ──
-    let days = store.by_day(7);
-    let max_cost = days.iter().map(|d| d.cost).fold(0.0f64, f64::max).max(0.01);
-    let bar_w = 10usize;
-
-    let mut top_lines: Vec<Line> = Vec::new();
-
-    let today_date = chrono::Utc::now().date_naive();
-    for day in days.iter().take(4) {
-        let is_today = day.date == today_date;
-        let (bf, be) = smooth_bar(day.cost, max_cost, bar_w);
-        let label = if is_today { "today".to_string() } else { day.date.format("%a").to_string() };
-        let bar_color = if is_today { ACCENT } else { FG_MUTED };
-
-        top_lines.push(Line::from(vec![
-            Span::styled(format!("   {:<6}", label), Style::default().fg(if is_today { FG } else { FG_FAINT })),
-            Span::styled(bf, Style::default().fg(bar_color)),
-            Span::styled(be, Style::default().fg(FG_FAINT)),
-            Span::styled(format!(" {:>7}  {} sess", pricing::format_cost(day.cost), day.session_count),
-                Style::default().fg(FG_FAINT)),
-        ]));
-    }
-
-    let models = store.by_model();
-    if !models.is_empty() && top_lines.len() < 4 {
-        let mut model_spans: Vec<Span> = vec![Span::styled("   models  ", Style::default().fg(FG_FAINT))];
-        let total_model_cost: f64 = models.iter().map(|m| m.cost).sum();
-        for m in models.iter().take(3) {
-            let pct = if total_model_cost > 0.0 { m.cost / total_model_cost * 100.0 } else { 0.0 };
-            let color = match m.name.as_str() {
-                "opus" => PURPLE,
-                "sonnet" => ACCENT,
-                "haiku" => ACCENT2,
-                _ => FG_MUTED,
-            };
-            model_spans.push(Span::styled(format!("{} ", m.name), Style::default().fg(color)));
-            model_spans.push(Span::styled(format!("{:.0}%  ", pct), Style::default().fg(FG_FAINT)));
-        }
-        top_lines.push(Line::from(model_spans));
-    }
-
-    while top_lines.len() < 4 { top_lines.push(Line::from(Span::raw(""))); }
-    frame.render_widget(Paragraph::new(top_lines), chunks[3]);
-    frame.render_widget(Paragraph::new(divider(w)), chunks[4]);
-
     // ── Column headers ──
     let name_w = (w as usize).saturating_sub(62).max(8);
     let col_header = Line::from(vec![
@@ -241,14 +194,14 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         Span::styled("  MODEL ", Style::default().fg(FG_FAINT)),
         Span::styled("  DUR ", Style::default().fg(FG_FAINT)),
         Span::styled("    COST", Style::default().fg(FG_FAINT)),
-        Span::styled("  CTX       ", Style::default().fg(FG_FAINT)),
+        Span::styled("  CTX  ", Style::default().fg(FG_FAINT)),
         Span::styled(" STATUS ", Style::default().fg(FG_FAINT)),
         Span::styled(" AGE", Style::default().fg(FG_FAINT)),
     ]);
-    frame.render_widget(Paragraph::new(col_header), chunks[5]);
+    frame.render_widget(Paragraph::new(col_header), chunks[3]);
 
     // ── Session list: active on top, then completed ──
-    let max_rows = chunks[6].height as usize;
+    let max_rows = chunks[4].height as usize;
 
     // Build flat list of display rows
     #[allow(dead_code)]
@@ -261,7 +214,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
         model_str: String,
         dur_str: String,
         cost: f64,
-        ctx_str: String,
+        ctx_pct: f64,
         status_label: String,
         status_color: Color,
         age_str: String,
@@ -278,14 +231,14 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             let raw_model = store.session_model(&meta.session_id);
             let model_str = crate::store::simplify_model(&raw_model);
 
-            // CTX display
-            let ctx_str = if let Some(limit) = meta.context_token_limit {
+            // CTX percentage for mini-bar
+            let ctx_pct = if let Some(limit) = meta.context_token_limit {
                 let current = ana.as_ref().map(|a| a.context_current).unwrap_or(0);
-                let pct = if limit > 0 { (current as f64 / limit as f64 * 100.0).min(100.0) } else { 0.0 };
-                format!("{}/{} {:.0}%", compact(current), compact(limit), pct)
+                if limit > 0 { (current as f64 / limit as f64 * 100.0).min(100.0) } else { 0.0 }
             } else {
                 let current = ana.as_ref().map(|a| a.context_current).unwrap_or(0);
-                if current > 0 { format!("{} tokens", compact(current)) } else { "--".to_string() }
+                let peak = ana.as_ref().map(|a| a.context_peak).unwrap_or(0);
+                if peak > 0 { (current as f64 / peak as f64 * 100.0).min(100.0) } else { 0.0 }
             };
 
             // Status
@@ -319,7 +272,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                 model_str,
                 dur_str,
                 cost,
-                ctx_str,
+                ctx_pct,
                 status_label,
                 status_color,
                 age_str,
@@ -354,7 +307,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
                     model_str: sub_model,
                     dur_str: sub_dur_str,
                     cost: sub_cost,
-                    ctx_str: "--".to_string(),
+                    ctx_pct: -1.0, // sentinel: no bar for subagents
                     status_label: sub_status.to_string(),
                     status_color: sub_status_color,
                     age_str: String::new(),
@@ -438,7 +391,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
 
         let topic = truncate(&row.topic, name_w.saturating_sub(row.tree_prefix.chars().count()));
 
-        lines.push(Line::from(vec![
+        let mut row_spans = vec![
             Span::styled(
                 row.tree_prefix.clone(),
                 Style::default().fg(if row.is_active { GREEN } else if row.is_subagent { FG_FAINT } else if is_selected { ACCENT } else { FG_FAINT }),
@@ -447,17 +400,24 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             Span::styled(format!("  {:>6}", row.model_str), Style::default().fg(fg_sub)),
             Span::styled(format!("  {:>4}", row.dur_str), Style::default().fg(fg_sub)),
             Span::styled(format!("  {:>7}", pricing::format_cost(row.cost)), Style::default().fg(if is_selected { ACCENT } else { FG_FAINT })),
-            Span::styled(format!("  {:>10}", row.ctx_str), Style::default().fg(FG_FAINT)),
-            Span::styled(format!("  {:>7}", row.status_label), Style::default().fg(row.status_color)),
-            Span::styled(format!("  {}", row.age_str), Style::default().fg(FG_FAINT)),
-        ]));
+            Span::styled("  ", Style::default()),
+        ];
+        // Context mini-bar or "--" for subagents
+        if row.ctx_pct >= 0.0 {
+            row_spans.extend(mini_bar(row.ctx_pct));
+        } else {
+            row_spans.push(Span::styled("  -- ", Style::default().fg(FG_FAINT)));
+        }
+        row_spans.push(Span::styled(format!("  {:>7}", row.status_label), Style::default().fg(row.status_color)));
+        row_spans.push(Span::styled(format!("  {}", row.age_str), Style::default().fg(FG_FAINT)));
+        lines.push(Line::from(row_spans));
 
         display_idx += 1;
         if !row.is_subagent { selectable_i += 1; }
     }
 
-    frame.render_widget(Paragraph::new(lines), chunks[6]);
-    frame.render_widget(Paragraph::new(divider(w)), chunks[7]);
+    frame.render_widget(Paragraph::new(lines), chunks[4]);
+    frame.render_widget(Paragraph::new(divider(w)), chunks[5]);
 
     // ── Help bar or search input ──
     if state.search_active || !state.search_query.is_empty() {
@@ -465,7 +425,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             Span::styled("   / ", Style::default().fg(ACCENT)),
             Span::styled(format!("{}_", state.search_query), Style::default().fg(FG)),
         ]);
-        frame.render_widget(Paragraph::new(search_line), chunks[8]);
+        frame.render_widget(Paragraph::new(search_line), chunks[6]);
     } else {
         let help = help_bar(&[
             ("\u{2191}\u{2193}", "navigate"),
@@ -474,7 +434,7 @@ fn render_list(frame: &mut ratatui::Frame, store: &Store, config: &Config, state
             ("/", "search"),
             ("esc", "back"),
         ]);
-        frame.render_widget(Paragraph::new(help), chunks[8]);
+        frame.render_widget(Paragraph::new(help), chunks[6]);
     }
 }
 
@@ -659,6 +619,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, config: &Config, sta
     }
 
     if let Some(ref tl) = timeline {
+        let spike_threshold = tl.avg_cost_per_turn * 2.5;
         let thresholds = [50.0, 75.0, 85.0];
         let mut last_crossed: Option<usize> = None;
         for turn in &tl.turns {
@@ -668,7 +629,7 @@ fn render_detail(frame: &mut ratatui::Frame, store: &Store, config: &Config, sta
 
             if turn.is_compaction {
                 timeline_entries.push(TimelineEntry { timestamp: turn.timestamp, kind: EntryKind::Compaction(turn.context_pct) });
-            } else if turn.cost > 0.50 {
+            } else if spike_threshold > 0.0 && turn.cost > spike_threshold {
                 timeline_entries.push(TimelineEntry { timestamp: turn.timestamp, kind: EntryKind::CostSpike(turn.cost) });
             } else if crossed_new && turn.context_pct >= 75.0 {
                 timeline_entries.push(TimelineEntry { timestamp: turn.timestamp, kind: EntryKind::ContextWarning(turn.context_pct) });

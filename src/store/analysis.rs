@@ -67,11 +67,13 @@ pub struct TurnSnapshot {
 
 /// Timeline of a session: turns + notable events
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SessionTimeline {
     pub turns: Vec<TurnSnapshot>,
     pub total_cost: f64,
     pub duration_minutes: i64,
     pub compaction_count: usize,
+    pub avg_cost_per_turn: f64,
 }
 
 pub fn analyze_session(records: &[UsageRecord], session_id: &str) -> Option<SessionAnalysis> {
@@ -173,7 +175,14 @@ pub fn session_timeline(records: &[UsageRecord], session_id: &str, ceiling: Opti
     if recs.is_empty() { return None; }
     recs.sort_by_key(|r| r.timestamp);
 
-    let ceiling_f = ceiling.map(|c| c as f64);
+    // When ceiling is unknown, use peak context across the session as fallback.
+    // This gives relative fill even without absolute limits.
+    let peak_ctx: u64 = recs.iter()
+        .map(|r| r.cache_read_tokens + r.cache_creation_tokens)
+        .max()
+        .unwrap_or(1);
+    let effective_ceiling = ceiling.map(|c| c as f64).unwrap_or(peak_ctx as f64).max(1.0);
+
     let mut turns = Vec::new();
     let mut compaction_count = 0usize;
     let mut prev_ctx = 0u64;
@@ -195,12 +204,13 @@ pub fn session_timeline(records: &[UsageRecord], session_id: &str, ceiling: Opti
             cost,
             output_tokens: r.output_tokens,
             is_compaction,
-            context_pct: ceiling_f.map(|c| (ctx as f64 / c * 100.0).min(100.0)).unwrap_or(0.0),
+            context_pct: (ctx as f64 / effective_ceiling * 100.0).min(100.0),
         });
         prev_ctx = ctx;
     }
 
-    let total_cost = turns.iter().map(|t| t.cost).sum();
+    let total_cost: f64 = turns.iter().map(|t| t.cost).sum();
+    let avg_cost_per_turn = if turns.is_empty() { 0.0 } else { total_cost / turns.len() as f64 };
     let duration_minutes = if turns.len() >= 2 {
         (turns.last().unwrap().timestamp - turns[0].timestamp).num_minutes()
     } else {
@@ -212,6 +222,7 @@ pub fn session_timeline(records: &[UsageRecord], session_id: &str, ceiling: Opti
         total_cost,
         duration_minutes,
         compaction_count,
+        avg_cost_per_turn,
     })
 }
 
