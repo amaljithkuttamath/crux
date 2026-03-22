@@ -7,7 +7,7 @@ use crate::pricing;
 use chrono::{Duration, NaiveDate, Utc};
 use std::collections::{HashMap, HashSet};
 
-pub use analysis::{HealthStatus, SessionAnalysis, SessionTimeline};
+pub use analysis::{SessionAnalysis, SessionTimeline};
 pub use cursor::{CursorModelStat, CursorOverviewStats};
 
 #[derive(Clone, Default)]
@@ -50,13 +50,6 @@ pub struct DaySummary {
     pub cost: f64,
 }
 
-#[derive(Debug)]
-pub struct ProjectGroup {
-    pub name: String,
-    pub cost: f64,
-    pub sessions: Vec<String>,
-}
-
 #[derive(Debug, Clone)]
 pub struct ModelSummary {
     pub name: String,
@@ -64,12 +57,6 @@ pub struct ModelSummary {
     pub output_tokens: u64,
     pub record_count: usize,
     pub cost: f64,
-}
-
-impl Aggregation {
-    pub fn total_tokens(&self) -> u64 {
-        self.input_tokens + self.output_tokens + self.cache_creation_tokens + self.cache_read_tokens
-    }
 }
 
 impl Store {
@@ -155,11 +142,6 @@ impl Store {
     pub fn today(&self) -> Aggregation {
         let today = Utc::now().date_naive();
         self.aggregate_records(|r| r.timestamp.date_naive() == today)
-    }
-
-    pub fn yesterday(&self) -> Aggregation {
-        let yesterday = (Utc::now() - Duration::days(1)).date_naive();
-        self.aggregate_records(|r| r.timestamp.date_naive() == yesterday)
     }
 
     pub fn this_week(&self) -> Aggregation {
@@ -373,65 +355,6 @@ impl Store {
 
     pub fn session_meta(&self, session_id: &str) -> Option<&SessionMeta> {
         self.session_metas.iter().find(|s| s.session_id == session_id)
-    }
-
-    pub fn records_iter(&self) -> impl Iterator<Item = &UsageRecord> {
-        self.records.iter()
-    }
-
-    pub fn today_by_project(&self) -> Vec<ProjectGroup> {
-        let today = Utc::now().date_naive();
-        let today_metas: Vec<&SessionMeta> = self.session_metas.iter()
-            .filter(|s| s.start_time.date_naive() == today)
-            .collect();
-
-        let mut groups: HashMap<String, (f64, Vec<(&SessionMeta, String)>)> = HashMap::new();
-        for meta in &today_metas {
-            let cost = self.session_cost(&meta.session_id);
-            groups.entry(meta.project.clone())
-                .or_insert_with(|| (0.0, Vec::new()))
-                .1.push((meta, meta.session_id.clone()));
-            groups.get_mut(&meta.project).unwrap().0 += cost;
-        }
-
-        let mut result: Vec<ProjectGroup> = groups.into_iter().map(|(name, (cost, mut sessions))| {
-            sessions.sort_by(|a, b| b.0.start_time.cmp(&a.0.start_time));
-            ProjectGroup {
-                name,
-                cost,
-                sessions: sessions.into_iter().map(|(_, id)| id).collect(),
-            }
-        }).collect();
-
-        let metas = &self.session_metas;
-        result.sort_by(|a, b| {
-            let a_time = a.sessions.first().and_then(|id| metas.iter().find(|s| &s.session_id == id)).map(|s| s.start_time);
-            let b_time = b.sessions.first().and_then(|id| metas.iter().find(|s| &s.session_id == id)).map(|s| s.start_time);
-            b_time.cmp(&a_time)
-        });
-        result
-    }
-
-    pub fn today_waste(&self) -> f64 {
-        let today = Utc::now().date_naive();
-        self.session_metas.iter()
-            .filter(|s| s.source == Source::ClaudeCode && s.start_time.date_naive() == today)
-            .filter_map(|s| self.analyze_session(&s.session_id))
-            .map(|a| a.context_growth_premium)
-            .sum()
-    }
-
-    pub fn today_cache_rate(&self) -> f64 {
-        let today = Utc::now().date_naive();
-        let (mut cache_read, mut input) = (0u64, 0u64);
-        for r in &self.records {
-            if r.timestamp.date_naive() == today {
-                cache_read += r.cache_read_tokens;
-                input += r.input_tokens;
-            }
-        }
-        let total = cache_read + input;
-        if total == 0 { 0.0 } else { cache_read as f64 / total as f64 }
     }
 
     // Cursor delegations

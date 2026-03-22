@@ -570,11 +570,3 @@ fn cursor_status_order(session: &SessionMeta, live_sessions: &std::collections::
         _ => 1,
     }
 }
-
-fn format_lines(session: &SessionMeta) -> String {
-    match (session.lines_added, session.lines_removed) {
-        (Some(a), Some(r)) => format!("+{} -{}", a, r),
-        (Some(a), None) => format!("+{}", a),
-        _ => String::new(),
-    }
-}

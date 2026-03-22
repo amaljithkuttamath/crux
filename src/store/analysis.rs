@@ -222,6 +222,7 @@ pub enum HealthStatus {
     Aging,
     CtxRot,
     Done,
+    #[allow(dead_code)]
     Aborted,
 }
 

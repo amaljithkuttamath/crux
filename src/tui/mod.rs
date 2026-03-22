@@ -296,10 +296,6 @@ impl App {
         self.live_sessions = crate::parser::liveness::check_liveness(&sessions_dir);
     }
 
-    pub fn is_session_live(&self, session_id: &str) -> bool {
-        self.live_sessions.get(session_id).copied().unwrap_or(false)
-    }
-
     fn check_cursor_refresh(&mut self) {
         if self.last_cursor_refresh.elapsed() < std::time::Duration::from_secs(30) {
             return;

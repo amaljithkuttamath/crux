@@ -16,14 +16,8 @@ pub struct DashboardState {
 pub struct SessionDetailView {
     pub session_id: String,
     pub timeline: SessionTimeline,
-    pub scroll: usize,
 }
 
-impl DashboardState {
-    pub fn back(&mut self) -> bool {
-        if self.detail.is_some() { self.detail = None; true } else { false }
-    }
-}
 
 pub fn render(
     frame: &mut ratatui::Frame,
