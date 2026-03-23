@@ -1,3 +1,5 @@
+pub mod widget;
+
 use crate::parser::Source;
 use crate::pricing;
 use crate::store::Store;
