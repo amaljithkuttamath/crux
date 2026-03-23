@@ -4,7 +4,7 @@ pub mod cursor;
 use crate::parser::{Source, UsageRecord};
 use crate::parser::conversation::SessionMeta;
 use crate::pricing;
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, Local, NaiveDate, Utc};
 use std::collections::{HashMap, HashSet};
 
 pub use analysis::{SessionAnalysis, SessionTimeline};
@@ -140,8 +140,23 @@ impl Store {
     }
 
     pub fn today(&self) -> Aggregation {
-        let today = Utc::now().date_naive();
-        self.aggregate_records(|r| r.timestamp.date_naive() == today)
+        let today = Local::now().date_naive();
+        self.aggregate_records(|r| r.timestamp.with_timezone(&Local).date_naive() == today)
+    }
+
+    /// Cost per hour based on the last hour of activity.
+    /// Returns 0.0 if no activity in the last hour.
+    #[allow(dead_code)]
+    pub fn burn_rate(&self) -> f64 {
+        let one_hour_ago = Utc::now() - Duration::hours(1);
+        let cost: f64 = self.records.iter()
+            .filter(|r| r.timestamp >= one_hour_ago)
+            .map(|r| pricing::estimate_cost(
+                &r.model, r.input_tokens, r.output_tokens,
+                r.cache_creation_tokens, r.cache_read_tokens,
+            ))
+            .sum();
+        cost
     }
 
     pub fn this_week(&self) -> Aggregation {
@@ -382,9 +397,9 @@ impl Store {
     /// Today's savings (context growth premium) filtered by source
     #[allow(dead_code)]
     pub fn today_savings_by_source(&self, source: Source) -> f64 {
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         self.session_metas.iter()
-            .filter(|s| s.source == source && s.start_time.date_naive() == today && !s.is_subagent)
+            .filter(|s| s.source == source && s.start_time.with_timezone(&Local).date_naive() == today && !s.is_subagent)
             .filter_map(|s| self.analyze_session(&s.session_id))
             .map(|a| a.context_growth_premium)
             .sum()
@@ -393,10 +408,10 @@ impl Store {
     /// Today's model usage breakdown
     #[allow(dead_code)]
     pub fn today_by_model(&self) -> Vec<ModelSummary> {
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         let mut map: HashMap<String, ModelSummary> = HashMap::new();
         for r in &self.records {
-            if r.timestamp.date_naive() != today { continue; }
+            if r.timestamp.with_timezone(&Local).date_naive() != today { continue; }
             let key = simplify_model(&r.model);
             let entry = map.entry(key.clone()).or_insert(ModelSummary {
                 name: key,
@@ -420,15 +435,15 @@ impl Store {
 
     /// Today's aggregation filtered by source
     pub fn today_by_source(&self, source: Source) -> Aggregation {
-        let today = Utc::now().date_naive();
-        self.aggregate_records(|r| r.timestamp.date_naive() == today && r.source == source)
+        let today = Local::now().date_naive();
+        self.aggregate_records(|r| r.timestamp.with_timezone(&Local).date_naive() == today && r.source == source)
     }
 
     /// Count sessions by source for today
     pub fn today_sessions_by_source(&self, source: Source) -> Vec<&SessionMeta> {
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         let mut sessions: Vec<&SessionMeta> = self.session_metas.iter()
-            .filter(|s| s.source == source && s.start_time.date_naive() == today)
+            .filter(|s| s.source == source && s.start_time.with_timezone(&Local).date_naive() == today)
             .collect();
         sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
         sessions
@@ -437,11 +452,12 @@ impl Store {
     /// Today's cost and session count per hour (0..24), for the hourly heatmap
     pub fn today_by_hour(&self) -> Vec<(f64, usize)> {
         use chrono::Timelike;
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         let mut hours: Vec<(f64, HashSet<String>)> = (0..24).map(|_| (0.0, HashSet::new())).collect();
         for r in &self.records {
-            if r.timestamp.date_naive() != today { continue; }
-            let h = r.timestamp.hour() as usize;
+            let local_ts = r.timestamp.with_timezone(&Local);
+            if local_ts.date_naive() != today { continue; }
+            let h = local_ts.hour() as usize;
             if h < 24 {
                 hours[h].0 += pricing::estimate_cost(
                     &r.model, r.input_tokens, r.output_tokens,

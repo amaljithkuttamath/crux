@@ -42,6 +42,17 @@ impl SessionAnalysis {
             _ => "F",
         }
     }
+
+    /// Context fill percentage using a known ceiling.
+    /// Falls back to model-based defaults when ceiling is None.
+    #[allow(dead_code)]
+    pub fn context_pct(&self, ceiling: Option<u64>) -> f64 {
+        let effective_ceiling = ceiling
+            .unwrap_or_else(|| model_context_ceiling(&self.model))
+            as f64;
+        if effective_ceiling <= 0.0 { return 0.0; }
+        (self.context_current as f64 / effective_ceiling * 100.0).min(100.0)
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -290,4 +301,17 @@ pub fn health_status(
     }
     if analysis.context_growth < 2.0 { return HealthStatus::Fresh; }
     HealthStatus::Healthy
+}
+
+/// Default context window sizes by model family.
+fn model_context_ceiling(model: &str) -> u64 {
+    if model.contains("opus") {
+        1_000_000
+    } else if model.contains("sonnet") {
+        200_000
+    } else if model.contains("haiku") {
+        200_000
+    } else {
+        200_000
+    }
 }
