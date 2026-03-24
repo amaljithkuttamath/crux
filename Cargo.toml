@@ -1,6 +1,6 @@
 [package]
 name = "crux-tokens"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Terminal dashboard for AI coding session analytics (Claude Code + Cursor)"
 license = "MIT"
