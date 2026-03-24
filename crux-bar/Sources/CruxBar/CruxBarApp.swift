@@ -30,14 +30,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 400)
         popover.behavior = .transient
         popover.animates = true
-        updatePopoverContent()
+        // Let SwiftUI size the popover naturally
+        let hostingController = NSHostingController(
+            rootView: PopoverView(data: dataLoader.data, isStale: dataLoader.isStale)
+        )
+        popover.contentViewController = hostingController
 
         updateTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            self?.updateMenuBarText()
-            self?.updatePopoverContent()
+            self?.refresh()
         }
     }
 
@@ -51,8 +53,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Update content right before showing
+            updatePopoverContent()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func refresh() {
+        updateMenuBarText()
+        // Only update popover content if it's currently showing
+        if popover.isShown {
+            updatePopoverContent()
         }
     }
 

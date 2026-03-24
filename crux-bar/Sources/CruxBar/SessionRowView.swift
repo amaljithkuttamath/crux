@@ -4,72 +4,61 @@ struct SessionRowView: View {
     let session: ActiveSession
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             // Health grade badge
             Text(session.healthGrade)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundColor(Theme.gradeColor(session.healthGrade))
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Theme.gradeColor(session.healthGrade).opacity(0.15))
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Theme.gradeColor(session.healthGrade).opacity(0.12))
                 )
 
             // Project + meta
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(session.project)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Text(session.durationLabel)
                     Text("\u{00B7}")
                     Text(session.model)
-                    Text(session.sourceLabel)
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(session.source == "claude_code"
-                                      ? Theme.claudeCode.opacity(0.15)
-                                      : Theme.cursor.opacity(0.15))
-                        )
-                        .foregroundColor(session.source == "claude_code"
-                                         ? Theme.claudeCode
-                                         : Theme.cursor)
                 }
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+                .font(.system(size: 10))
+                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
             }
 
             Spacer()
 
-            // Cost + context bar
-            VStack(alignment: .trailing, spacing: 3) {
+            // Cost + context
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(Theme.formatCost(session.cost))
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
 
-                // Context fill bar
-                GeometryReader { geo in
+                // Context as a compact inline indicator
+                HStack(spacing: 3) {
+                    // Tiny bar
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 1.5)
+                        RoundedRectangle(cornerRadius: 1)
                             .fill(Color.primary.opacity(0.06))
-                        RoundedRectangle(cornerRadius: 1.5)
+                            .frame(width: 30, height: 2.5)
+                        RoundedRectangle(cornerRadius: 1)
                             .fill(Theme.contextColor(session.contextPercent))
-                            .frame(width: geo.size.width * min(session.contextPercent / 100, 1))
+                            .frame(
+                                width: 30 * min(session.contextPercent / 100, 1),
+                                height: 2.5
+                            )
                     }
+                    Text("\(Int(session.contextPercent))%")
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundColor(Color(nsColor: .quaternaryLabelColor))
                 }
-                .frame(width: 40, height: 3)
-
-                Text("\(Int(session.contextPercent))% ctx")
-                    .font(.system(size: 9))
-                    .foregroundColor(Color(nsColor: .quaternaryLabelColor))
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
         .padding(.horizontal, 10)
     }
 }

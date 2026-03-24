@@ -46,11 +46,51 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
+      - name: Build CruxBar (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          cd crux-bar
+          swift build -c release --arch arm64 --arch x86_64
+
+      - name: Create CruxBar.app bundle (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p CruxBar.app/Contents/MacOS
+          cp crux-bar/.build/apple/Products/Release/CruxBar CruxBar.app/Contents/MacOS/
+          cat > CruxBar.app/Contents/Info.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>CruxBar</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.amaljithk.CruxBar</string>
+            <key>CFBundleName</key>
+            <string>CruxBar</string>
+            <key>CFBundleVersion</key>
+            <string>0.5.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>0.5.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>14.0</string>
+            <key>LSUIElement</key>
+            <true/>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
       - name: Package
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.name }}.tar.gz crux
-          cd ../../..
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            tar czf ${{ matrix.name }}.tar.gz -C target/${{ matrix.target }}/release crux -C ../../../ CruxBar.app
+          else
+            cd target/${{ matrix.target }}/release
+            tar czf ../../../${{ matrix.name }}.tar.gz crux
+            cd ../../..
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

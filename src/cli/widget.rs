@@ -73,9 +73,43 @@ pub fn build_widget_data(store: &Store, _config: &Config) -> WidgetData {
             Source::Cursor => "cursor",
         };
 
+        // Check if this session is at a workspace root by looking at its
+        // file path. The parent directory encodes the full working dir:
+        // e.g. -Users-amal-Developer-lab-crux -> has a project sub-path
+        //      -Users-amal-Developer          -> workspace root, no project
+        // A root directory has the same name as meta.project after display_project_name
+        // processes it. We detect root sessions by checking if the raw directory
+        // name (from file_path) has no path component after the last known
+        // home directory segment. Direct check: re-run extract on the dir name
+        // and see if it produced a single-segment result matching the dir's tail.
+        let display_name = crate::tui::widgets::display_project_name(&meta.project);
+        let is_root_session = {
+            // The raw dir name from the JSONL path's parent
+            let raw_dir = std::path::Path::new(&meta.file_path)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            // Root sessions: raw dir ends with a home path component and nothing after.
+            // e.g. "-Users-amal-Developer" has no further segments after the last
+            // recognizable path component. We check: does the raw dir, after the
+            // last occurrence of the display_name, have nothing else?
+            // Simplest direct check: raw dir ends with &meta.project and
+            // meta.project equals display_name (no stripping happened).
+            raw_dir.ends_with(&format!("-{}", &meta.project))
+                && meta.project == display_name
+                && !meta.project.is_empty()
+        };
+
+        let project_name = if is_root_session && !meta.first_message.is_empty() {
+            crate::tui::widgets::truncate(&meta.first_message, 24)
+        } else {
+            display_name
+        };
+
         active_sessions.push(ActiveSession {
             session_id: meta.session_id.clone(),
-            project: crate::tui::widgets::display_project_name(&meta.project),
+            project: project_name,
             source: source_str.to_string(),
             model: analysis.model.clone(),
             duration_minutes: duration.max(1),

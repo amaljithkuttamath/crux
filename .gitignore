@@ -5,3 +5,6 @@ demo.*
 record_demo.*
 docs/
 .worktrees/
+.superpowers/
+CruxBar.app/
+crux-bar/.build/
