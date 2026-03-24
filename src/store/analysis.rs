@@ -307,10 +307,6 @@ pub fn health_status(
 fn model_context_ceiling(model: &str) -> u64 {
     if model.contains("opus") {
         1_000_000
-    } else if model.contains("sonnet") {
-        200_000
-    } else if model.contains("haiku") {
-        200_000
     } else {
         200_000
     }
