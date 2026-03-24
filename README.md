@@ -6,14 +6,23 @@ A terminal dashboard for understanding your AI coding sessions. Built for Claude
 
 ## What it does
 
-crux reads session data from Claude Code (JSONL logs) and Cursor IDE (SQLite database) and gives you a live, interactive terminal dashboard with:
+crux reads session data from Claude Code (JSONL logs) and Cursor IDE (SQLite database) and gives you:
+
+**Menu bar monitor (macOS)** - at-a-glance session health without leaving your editor:
+
+- Today's cost and burn rate ($/hr)
+- Active sessions with health grades (A-F) and context fill
+- Claude Code + Cursor cost split
+
+**Terminal dashboard** - full interactive TUI:
 
 - **Overview** with ticker bar (cost, burn rate, 7d sparkline, streak), active session health with context trajectory sparklines, and split Claude Code / Cursor panes
 - **Claude Code view** with daily cost bars, model breakdown (opus/sonnet/haiku), date-grouped session list with context sparklines and efficiency grades
 - **Cursor view** with model comparison bars, session list with mode badges and line counts, session detail with todo display
 - **History view** with 30-day cumulative trend, CC vs Cursor source split, daily cost table, and model breakdown
 - **Session drill-down** with context timeline, cost sparkline, conversation replay, and cost breakdown
-- **MCP server** exposing 5 analysis tools for session health, cost breakdown, and restart recommendations
+
+**MCP server** - 5 analysis tools for session health, cost breakdown, and restart recommendations
 
 ## Install
 
@@ -36,9 +45,34 @@ git clone https://github.com/amaljithkuttamath/crux.git
 cd crux
 cargo build --release
 # binary at target/release/crux
+
+# Menu bar app (macOS only, requires Swift 5.9+)
+cd crux-bar
+swift build -c release
+# binary at .build/release/CruxBar
 ```
 
 ## Usage
+
+### Menu bar monitor (macOS)
+
+After installing via Homebrew:
+
+```bash
+open $(brew --prefix)/CruxBar.app
+```
+
+Or from source:
+
+```bash
+./crux-bar/.build/release/CruxBar
+```
+
+CruxBar runs in your menu bar and shows today's cost, active session count, and a green pulse dot. Click to see the full popover with session health grades, burn rate, and context fill per session.
+
+CruxBar automatically spawns `crux export-widget --watch` in the background to keep data fresh. No manual setup needed.
+
+To start at login: System Settings > General > Login Items > add CruxBar.
 
 ### Interactive dashboard
 
@@ -71,11 +105,13 @@ The dashboard has four views:
 ### CLI commands
 
 ```bash
-crux summary     # today's cost across both tools with breakdown
-crux daily       # last 7 days with cost, tokens, sessions
-crux project     # per-project breakdown with clean names
-crux session     # list 30 most recent sessions with grade and source
-crux health      # active session health for scripting (FRESH/OK/AGING/CRITICAL)
+crux summary          # today's cost across both tools with breakdown
+crux daily            # last 7 days with cost, tokens, sessions
+crux project          # per-project breakdown with clean names
+crux session          # list 30 most recent sessions with grade and source
+crux health           # active session health for scripting (FRESH/OK/AGING/CRITICAL)
+crux export-widget    # write ~/.cache/crux/widget.json (one-shot)
+crux export-widget --watch  # re-export every 60s (used by CruxBar)
 ```
 
 ### MCP server
