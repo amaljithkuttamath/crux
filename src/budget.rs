@@ -331,7 +331,7 @@ fn analyze_duplication(items: &[BudgetItem]) -> DuplicationReport {
         };
         let meaningful: HashSet<String> = content.lines()
             .filter(|l| is_meaningful_line(l))
-            .map(|l| normalize_line(l))
+            .map(normalize_line)
             .collect();
         let count = meaningful.len();
         if count > 0 {
