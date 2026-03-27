@@ -1,3 +1,4 @@
+pub mod statusline;
 pub mod widget;
 
 use crate::parser::Source;

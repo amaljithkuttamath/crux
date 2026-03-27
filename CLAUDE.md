@@ -2,6 +2,8 @@
 
 Terminal dashboard for AI coding session analytics (Claude Code + Cursor).
 
+**Read `docs/vision.md` first for project direction and next moves.**
+
 ## Build & Run
 
 ```bash

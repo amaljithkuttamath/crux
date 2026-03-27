@@ -34,12 +34,20 @@ enum Commands {
         #[arg(long)]
         watch: bool,
     },
+    /// Output ANSI-colored status line (reads Claude Code session JSON from stdin)
+    Statusline,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli_args = Cli::parse();
     let config = Config::load();
+
+    // Statusline reads widget.json first. Only loads store as last-resort fallback.
+    if let Some(Commands::Statusline) = &cli_args.command {
+        return cli::statusline::run_statusline(&config);
+    }
+
     let store = crux::load_store(&config)?;
 
     match cli_args.command {
@@ -62,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             service.waiting().await?;
         }
+        Some(Commands::Statusline) => unreachable!(),
         None => {
             let terminal = ratatui::init();
             let result = tui::App::new(store, config).run(terminal);

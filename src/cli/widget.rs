@@ -5,27 +5,27 @@ use chrono::Utc;
 use serde::Serialize;
 use std::path::PathBuf;
 
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub struct WidgetData {
     pub generated_at: String,
     pub today: TodaySummary,
     pub active_sessions: Vec<ActiveSession>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub struct TodaySummary {
     pub total_cost: f64,
     pub burn_rate_per_hour: f64,
     pub sources: SourceCosts,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub struct SourceCosts {
     pub claude_code: f64,
     pub cursor: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub struct ActiveSession {
     pub session_id: String,
     pub project: String,
@@ -35,6 +35,16 @@ pub struct ActiveSession {
     pub cost: f64,
     pub health_grade: String,
     pub context_percent: f64,
+    #[serde(default)]
+    pub subagent_count: usize,
+    #[serde(default)]
+    pub agent_spawns: usize,
+    #[serde(default)]
+    pub cache_hit_rate: f64,
+    #[serde(default)]
+    pub compaction_count: usize,
+    #[serde(default)]
+    pub context_growth: f64,
 }
 
 pub fn build_widget_data(store: &Store, _config: &Config) -> WidgetData {
@@ -107,6 +117,11 @@ pub fn build_widget_data(store: &Store, _config: &Config) -> WidgetData {
             display_name
         };
 
+        // Count subagents for this session from the store
+        let subagent_count = store.sessions_by_time().iter()
+            .filter(|s| s.parent_session_id.as_deref() == Some(&meta.session_id))
+            .count();
+
         active_sessions.push(ActiveSession {
             session_id: meta.session_id.clone(),
             project: project_name,
@@ -116,6 +131,11 @@ pub fn build_widget_data(store: &Store, _config: &Config) -> WidgetData {
             cost: analysis.total_cost,
             health_grade: analysis.grade_letter().to_string(),
             context_percent: analysis.context_pct(meta.context_token_limit),
+            subagent_count,
+            agent_spawns: meta.agent_spawns,
+            cache_hit_rate: analysis.cache_hit_rate,
+            compaction_count: analysis.compaction_count,
+            context_growth: analysis.context_growth,
         });
     }
 
