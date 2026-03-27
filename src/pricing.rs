@@ -1,6 +1,7 @@
 /// API-equivalent cost estimates per million tokens
-/// Based on Anthropic's published pricing (as of March 2026)
-/// These are what it WOULD cost on the API, not what the user pays on subscription
+/// Based on Anthropic's published pricing (updated March 2026)
+/// Opus/Haiku rates are for 4.5/4.6 generation. Sonnet unchanged.
+/// Cache write = 5-minute TTL (1.25x input). Cache read = 0.1x input.
 pub struct ModelPricing {
     pub input_per_m: f64,
     pub output_per_m: f64,
@@ -12,17 +13,17 @@ pub fn pricing_for_model(model: &str) -> ModelPricing {
     // Claude models
     if model.contains("opus") {
         ModelPricing {
-            input_per_m: 15.0,
-            output_per_m: 75.0,
-            cache_write_per_m: 18.75,
-            cache_read_per_m: 1.50,
+            input_per_m: 5.0,
+            output_per_m: 25.0,
+            cache_write_per_m: 6.25,
+            cache_read_per_m: 0.50,
         }
     } else if model.contains("haiku") {
         ModelPricing {
-            input_per_m: 0.80,
-            output_per_m: 4.0,
-            cache_write_per_m: 1.0,
-            cache_read_per_m: 0.08,
+            input_per_m: 1.0,
+            output_per_m: 5.0,
+            cache_write_per_m: 1.25,
+            cache_read_per_m: 0.10,
         }
     } else if model.contains("sonnet") {
         ModelPricing {

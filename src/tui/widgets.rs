@@ -93,8 +93,9 @@ pub fn help_bar(bindings: &[(&str, &str)]) -> Line<'static> {
 /// Truncate a string to max width, first line only
 pub fn truncate(s: &str, max: usize) -> String {
     let first_line = s.lines().next().unwrap_or(s);
-    if first_line.len() > max {
-        format!("{}...", &first_line[..max.saturating_sub(3)])
+    if first_line.chars().count() > max {
+        let truncated: String = first_line.chars().take(max.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     } else {
         first_line.to_string()
     }
@@ -107,8 +108,9 @@ pub fn truncate_model(model: &str, max: usize) -> String {
         .replace("anthropic/", "")
         .replace("openai/", "")
         .replace("google/", "");
-    if clean.len() > max {
-        format!("{}...", &clean[..max.saturating_sub(3)])
+    if clean.chars().count() > max {
+        let truncated: String = clean.chars().take(max.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     } else {
         clean
     }
@@ -154,11 +156,9 @@ pub fn dashed_divider(width: u16) -> Line<'static> {
 /// Consistent 2-line navigation header for all views.
 /// active_view: "overview", "claude_code", "cursor", "history"
 pub fn nav_header(active_view: &str, width: u16) -> Vec<Line<'static>> {
-    let views: [(&str, &str, &str); 4] = [
-        ("O", "verview", "overview"),
-        ("D", " Claude Code", "claude_code"),
-        ("C", "ursor", "cursor"),
-        ("H", "istory", "history"),
+    let views: [(&str, &str, &str); 2] = [
+        ("B", "rowser", "browser"),
+        ("S", "tats", "stats"),
     ];
 
     let mut spans: Vec<Span<'static>> = vec![Span::styled(" ", Style::default())];
@@ -208,10 +208,22 @@ pub fn model_color(index: usize) -> Color {
 /// Context mini-bar: 5-char compact bar colored by threshold.
 /// Returns styled spans: e.g. "▓▓▓░░" with color based on pct.
 pub fn mini_bar(pct: f64) -> Vec<Span<'static>> {
+    mini_bar_ctx(pct, 0)
+}
+
+/// Context bar that reflects compaction history.
+/// When compactions > 0, the fill color shifts to indicate recycled context.
+pub fn mini_bar_ctx(pct: f64, compactions: usize) -> Vec<Span<'static>> {
     let filled = ((pct / 100.0).clamp(0.0, 1.0) * 5.0).round() as usize;
     let bar_f = "\u{2593}".repeat(filled);
     let bar_e = "\u{2591}".repeat(5usize.saturating_sub(filled));
-    let color = if pct > 85.0 { RED } else if pct > 60.0 { YELLOW } else { GREEN };
+    let color = if compactions > 0 {
+        // Compacted sessions: amber/yellow tones. "Full" after compaction is
+        // a different state than "full" on a fresh window.
+        if pct > 85.0 { YELLOW } else if pct > 60.0 { ACCENT } else { GREEN }
+    } else {
+        if pct > 85.0 { RED } else if pct > 60.0 { YELLOW } else { GREEN }
+    };
     vec![
         Span::styled(bar_f, Style::default().fg(color)),
         Span::styled(bar_e, Style::default().fg(FG_FAINT)),

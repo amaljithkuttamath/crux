@@ -210,10 +210,10 @@ struct PopoverView: View {
     // MARK: - Actions
 
     private func openCruxTUI() {
-        let script = "tell application \"Terminal\" to do script \"crux\""
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
+        guard let binary = ProcessManager.findCruxBinary() else { return }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        proc.arguments = ["-a", "Terminal", binary]
+        try? proc.run()
     }
 }

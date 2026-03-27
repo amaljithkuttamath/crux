@@ -8,21 +8,27 @@ A terminal dashboard for understanding your AI coding sessions. Built for Claude
 
 crux reads session data from Claude Code (JSONL logs) and Cursor IDE (SQLite database) and gives you:
 
-**Menu bar monitor (macOS)** - at-a-glance session health without leaving your editor:
+**Browser** (default view) - interactive session explorer:
 
-- Today's cost and burn rate ($/hr)
-- Active sessions with health grades (A-F) and context fill
-- Claude Code + Cursor cost split
+- Today cockpit: cost, burn rate ($/hr), vs 7d avg, streak, budget fill, CC/Cursor source split
+- Three-panel explorer: projects, sessions, live stats sidebar
+- Source filtering: `d` for Claude Code only, `c` for Cursor only, `f` to cycle
+- Session detail overlay: context growth chart, health panel, cost breakdown, activity pattern
+- Conversation replay with tool use timeline
 
-**Terminal dashboard** - full interactive TUI:
+**Stats** - retrospective analytics:
 
-- **Overview** with ticker bar (cost, burn rate, 7d sparkline, streak), active session health with context trajectory sparklines, and split Claude Code / Cursor panes
-- **Claude Code view** with daily cost bars, model breakdown (opus/sonnet/haiku), date-grouped session list with context sparklines and efficiency grades
-- **Cursor view** with model comparison bars, session list with mode badges and line counts, session detail with todo display
-- **History view** with 30-day cumulative trend, CC vs Cursor source split, daily cost table, and model breakdown
-- **Session drill-down** with context timeline, cost sparkline, conversation replay, and cost breakdown
+- Contribution heatmap (GitHub-style, with cost sparkline)
+- Key numbers: sessions, streak, tokens, cost, cache rate, compactions, efficiency
+- 30-day cumulative trend with CC/Cursor source split
+- Scrollable daily cost table
+- Model breakdown, badges, context budget with duplication analysis
+
+**Menu bar monitor (macOS)** - at-a-glance session health without leaving your editor
 
 **MCP server** - 5 analysis tools for session health, cost breakdown, and restart recommendations
+
+**CLI** - scriptable session analytics for automation and piping
 
 ## Install
 
@@ -54,6 +60,36 @@ swift build -c release
 
 ## Usage
 
+### Interactive dashboard
+
+```bash
+crux
+```
+
+Two views, keyboard-driven:
+
+| View | Keys | What it shows |
+|------|------|---------------|
+| **Browser** | default, `b` | Today cockpit, three-panel session explorer, detail overlay |
+| **Stats** | `s` | Heatmap, key numbers, trends, daily table, models, badges |
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `b` | Browser (all sources) |
+| `d` | Browser, Claude Code only |
+| `c` | Browser, Cursor only |
+| `f` | Cycle source filter (All/CC/Cursor) |
+| `s` | Stats view |
+| `Enter` | Session detail (context growth chart) |
+| `Right` | Drill into conversation |
+| `Left` / `Esc` | Back |
+| `j` / `k` | Navigate / scroll |
+| `/` | Search sessions |
+| `?` | Help |
+| `q` | Quit |
+
 ### Menu bar monitor (macOS)
 
 After installing via Homebrew:
@@ -62,56 +98,21 @@ After installing via Homebrew:
 open $(brew --prefix)/CruxBar.app
 ```
 
-Or from source:
-
-```bash
-./crux-bar/.build/release/CruxBar
-```
-
-CruxBar runs in your menu bar and shows today's cost, active session count, and a green pulse dot. Click to see the full popover with session health grades, burn rate, and context fill per session.
-
-CruxBar automatically spawns `crux export-widget --watch` in the background to keep data fresh. No manual setup needed.
+CruxBar runs in your menu bar showing today's cost and active session count. Click for the full popover with health grades and context fill.
 
 To start at login: System Settings > General > Login Items > add CruxBar.
-
-### Interactive dashboard
-
-```bash
-crux
-```
-
-The dashboard has four views:
-
-| View | Key | What it shows |
-|------|-----|---------------|
-| **Overview** | (default) | Ticker bar, active sessions with health, split CC/Cursor panes |
-| **Claude Code** | `d` | Daily cost bars, model breakdown, all CC sessions with grades |
-| **Cursor** | `c` | Model comparison, unified session list with mode/status/lines |
-| **History** | `h` | Cumulative trend, source split, daily costs, model breakdown |
-
-### Navigation
-
-| Key | Action |
-|-----|--------|
-| `d` | Claude Code view |
-| `c` | Cursor view |
-| `h` | History view |
-| `Tab` | Switch pane focus (Overview) |
-| `Enter` | Drill into session detail |
-| `Esc` | Back to previous view |
-| `j` / `k` | Scroll down / up |
-| `q` | Quit |
 
 ### CLI commands
 
 ```bash
-crux summary          # today's cost across both tools with breakdown
+crux summary          # today's cost with breakdown
 crux daily            # last 7 days with cost, tokens, sessions
-crux project          # per-project breakdown with clean names
-crux session          # list 30 most recent sessions with grade and source
-crux health           # active session health for scripting (FRESH/OK/AGING/CRITICAL)
-crux export-widget    # write ~/.cache/crux/widget.json (one-shot)
-crux export-widget --watch  # re-export every 60s (used by CruxBar)
+crux project          # per-project breakdown
+crux session          # recent sessions with grade and source
+crux health           # active session health (FRESH/OK/AGING/CRITICAL)
+crux stats            # activity stats, heatmap, achievements
+crux budget           # context budget scan with duplication analysis
+crux serve            # MCP server (5 tools over stdio)
 ```
 
 ### MCP server
@@ -122,13 +123,7 @@ Run crux as an MCP server for Claude Code to query your session analytics mid-co
 crux serve
 ```
 
-This exposes 5 tools over stdio:
-
-- `session_health` - real-time session metrics and efficiency grade
-- `session_cost` - detailed cost breakdown with context growth premium
-- `should_restart` - recommendation engine for when to start fresh
-- `list_sessions` - browse recent sessions with filters
-- `search_sessions` - keyword search across session topics
+Tools: `session_health`, `session_cost`, `should_restart`, `list_sessions`, `search_sessions`
 
 Add to your Claude Code config (`~/.claude.json`):
 
@@ -162,19 +157,20 @@ enable_cursor = true
 
 ## How it works
 
-**Claude Code:** crux parses the JSONL session logs that Claude Code writes to `~/.claude/projects/`. Each API call includes token counts (input, output, cache read, cache write) and model info. A file watcher detects new records in real time.
+**Claude Code:** crux parses the JSONL session logs at `~/.claude/projects/`. Each API call includes token counts (input, output, cache read, cache write) and model info. A file watcher detects new records in real time.
 
-**Cursor:** crux reads Cursor's SQLite database at `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, extracting session metadata, per-message token counts, completion status, lines shipped, and context fill across all models. Refreshes every 30 seconds.
+**Cursor:** crux reads Cursor's SQLite database at `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, extracting session metadata, per-message token counts, completion status, lines shipped, and context fill. Refreshes every 30 seconds.
 
-Both sources feed into the same analytics pipeline. crux aggregates into session-level analytics, detects context window compactions, calculates efficiency metrics, and renders everything in a ratatui-powered TUI.
+Both sources feed into the same analytics pipeline: session-level aggregation, compaction detection, efficiency metrics, and a ratatui-powered TUI.
 
 Key metrics:
-- **Context growth factor** - how much your context window expanded from start to current
-- **Cache hit rate** - what percentage of input comes from cache (higher = cheaper)
+- **Context growth factor** - how much your context window expanded from start
+- **Cache hit rate** - percentage of input from cache (higher = cheaper)
 - **Output efficiency** - ratio of useful output to total context processed
-- **Context growth premium** - extra cost from expanding context vs. starting fresh
-- **Efficiency grade** - A-F composite score based on growth, efficiency, and cost
-- **Session health** - FRESH/OK/AGING/CRITICAL based on context fill and growth trajectory
+- **Context growth premium** - extra cost from growing context vs. starting fresh
+- **Efficiency grade** - A-F composite score
+- **Session health** - fresh/healthy/aging/ctx rot based on context fill and growth
+- **Duplication analysis** - percentage of always-loaded context that's redundant across files
 
 ## License
 

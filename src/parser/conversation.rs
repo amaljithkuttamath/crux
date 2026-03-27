@@ -56,6 +56,14 @@ pub struct SessionMeta {
     pub parent_session_id: Option<String>,
     pub is_subagent: bool,
     pub agent_type: Option<String>,
+    /// Cursor: subtitle showing files edited (e.g. "Edited foo.rs, bar.rs")
+    pub cursor_subtitle: Option<String>,
+    /// Cursor: actual model name from modelConfig (e.g. "claude-4.6-opus-high-thinking")
+    pub cursor_model_name: Option<String>,
+    /// Cursor: added files count
+    pub added_files: Option<u64>,
+    /// Cursor: removed files count
+    pub removed_files: Option<u64>,
 }
 
 impl SessionMeta {
@@ -172,6 +180,10 @@ pub fn parse_session_meta(path: &str) -> anyhow::Result<SessionMeta> {
         parent_session_id: None,
         is_subagent: false,
         agent_type: None,
+        cursor_subtitle: None,
+        cursor_model_name: None,
+        added_files: None,
+        removed_files: None,
     })
 }
 
@@ -298,8 +310,9 @@ fn extract_assistant_content(message: &Option<serde_json::Value>) -> (String, Ve
 
 fn truncate_str(s: &str, max: usize) -> String {
     let first_line = s.lines().next().unwrap_or(s);
-    if first_line.len() > max {
-        format!("{}...", &first_line[..max.saturating_sub(3)])
+    if first_line.chars().count() > max {
+        let truncated: String = first_line.chars().take(max.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     } else {
         first_line.to_string()
     }

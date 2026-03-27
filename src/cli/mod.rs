@@ -112,6 +112,104 @@ pub fn format_sessions(store: &Store) -> String {
     out
 }
 
+pub fn format_stats(store: &Store) -> String {
+    let all = store.all_time();
+    let streak = store.streak_days();
+    let longest_streak = store.longest_streak();
+    let active_days = store.active_days();
+    let total_tokens = store.total_tokens();
+    let favorite_model = store.favorite_model().unwrap_or_else(|| "none".to_string());
+    let avg_dur = store.avg_session_duration();
+    let night_ratio = store.night_owl_ratio();
+
+    let mut out = String::new();
+    out.push_str(&format!("Sessions: {}  Active days: {}  Tokens: {}\n", all.session_count, active_days, compact(total_tokens)));
+    out.push_str(&format!("Current streak: {} days  Longest streak: {} days\n", streak, longest_streak));
+    out.push_str(&format!("Favorite model: {}  Total cost: {}\n", favorite_model, pricing::format_cost(all.cost)));
+    out.push_str(&format!("Avg session: {:.0}m  Night owl: {:.0}%\n", avg_dur, night_ratio));
+
+    if let Some((_, mins)) = store.longest_session() {
+        let dur = if mins >= 1440.0 {
+            format!("{}d {}h", (mins / 1440.0).floor() as u64, ((mins % 1440.0) / 60.0).floor() as u64)
+        } else if mins >= 60.0 {
+            format!("{}h {}m", (mins / 60.0).floor() as u64, (mins % 60.0).floor() as u64)
+        } else {
+            format!("{:.0}m", mins)
+        };
+        out.push_str(&format!("Longest session: {}\n", dur));
+    }
+
+    if let Some((date, count)) = store.most_active_day() {
+        out.push_str(&format!("Most active day: {} ({} sessions)\n", date, count));
+    }
+
+    // Heatmap
+    let (grid, _) = store.activity_heatmap();
+    let total_days = grid.len();
+    let weeks = total_days.div_ceil(7);
+    let max_count = grid.iter().max().copied().unwrap_or(1).max(1);
+    let blocks = ['\u{00b7}', '\u{2591}', '\u{2592}', '\u{2593}', '\u{2588}'];
+    let day_labels = ["   ", "Mon", "   ", "Wed", "   ", "Fri", "   "];
+
+    out.push('\n');
+    for (row, label) in day_labels.iter().enumerate() {
+        out.push_str(&format!("{} ", label));
+        for week in 0..weeks {
+            let idx = week * 7 + row;
+            if idx >= total_days {
+                out.push('\u{00b7}');
+                continue;
+            }
+            let count = grid[idx];
+            let intensity = if count == 0 { 0 } else {
+                ((count as f64 / max_count as f64) * 3.0).ceil() as usize + 1
+            };
+            out.push(blocks[intensity.min(4)]);
+        }
+        out.push('\n');
+    }
+    out.push_str("    Less \u{2591} \u{2592} \u{2593} \u{2588} More\n");
+
+    // Efficiency
+    let cache_rate = store.avg_cache_hit_rate();
+    let premium = store.total_context_premium();
+    let compactions = store.total_compactions();
+    out.push_str(&format!("\nCache hit: {:.0}%  Ctx bloat: {}  Compactions: {}\n",
+        cache_rate * 100.0, pricing::format_cost(premium), compactions));
+
+    // Grade distribution
+    let grades = store.grade_distribution();
+    out.push_str(&format!("Grades: A:{} B:{} C:{} D:{} F:{}\n",
+        grades[0], grades[1], grades[2], grades[3], grades[4]));
+
+    // Week comparison
+    let (tw, lw, tws, _lws) = store.week_comparison();
+    let delta = if lw > 0.0 { (tw - lw) / lw * 100.0 } else { 0.0 };
+    out.push_str(&format!("This week: {} ({} sess)  {}{:.0}% vs last\n",
+        pricing::format_cost(tw), tws,
+        if delta >= 0.0 { "+" } else { "" }, delta));
+
+    // Month comparison
+    let (tm, lm, tms, _lms) = store.month_comparison();
+    let mdelta = if lm > 0.0 { (tm - lm) / lm * 100.0 } else { 0.0 };
+    out.push_str(&format!("This month: {} ({} sess)  {}{:.0}% vs last\n",
+        pricing::format_cost(tm), tms,
+        if mdelta >= 0.0 { "+" } else { "" }, mdelta));
+
+    // Top tools
+    let tools = store.top_tools(5);
+    if !tools.is_empty() {
+        out.push_str("\nTop tools: ");
+        for (i, (name, count)) in tools.iter().enumerate() {
+            if i > 0 { out.push_str(", "); }
+            out.push_str(&format!("{}({})", name, count));
+        }
+        out.push('\n');
+    }
+
+    out
+}
+
 pub fn format_health(store: &Store) -> String {
     let active = store.active_sessions(24);
     if active.is_empty() {

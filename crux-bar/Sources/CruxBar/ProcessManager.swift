@@ -3,8 +3,9 @@ import Foundation
 final class ProcessManager {
     private var process: Process?
 
-    private func findCruxBinary() -> String? {
+    static func findCruxBinary() -> String? {
         let candidates = [
+            "/opt/homebrew/bin/crux",
             "/usr/local/bin/crux",
             "\(FileManager.default.homeDirectoryForCurrentUser.path)/.cargo/bin/crux",
         ]
@@ -29,7 +30,7 @@ final class ProcessManager {
     }
 
     func start() {
-        guard let binary = findCruxBinary() else {
+        guard let binary = Self.findCruxBinary() else {
             print("CruxBar: crux binary not found")
             return
         }

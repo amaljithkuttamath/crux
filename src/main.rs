@@ -26,6 +26,10 @@ enum Commands {
     Session,
     /// Active session health for scripting
     Health,
+    /// Activity stats: heatmap, streaks, achievements
+    Stats,
+    /// Context budget: scan ~/.claude/ for token overhead
+    Budget,
     /// Run as MCP server over stdio
     Serve,
     /// Export widget JSON for menu bar app
@@ -56,6 +60,11 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Project) => print!("{}", cli::format_projects(&store)),
         Some(Commands::Session) => print!("{}", cli::format_sessions(&store)),
         Some(Commands::Health) => print!("{}", cli::format_health(&store)),
+        Some(Commands::Stats) => print!("{}", cli::format_stats(&store)),
+        Some(Commands::Budget) => {
+            let report = crux::budget::scan();
+            print!("{}", crux::budget::format_report(&report));
+        }
         Some(Commands::ExportWidget { watch }) => {
             if watch {
                 cli::widget::export_watch(&config)?;

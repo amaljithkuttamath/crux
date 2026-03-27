@@ -5,6 +5,7 @@ pub mod cli;
 pub mod tui;
 pub mod pricing;
 pub mod mcp;
+pub mod budget;
 
 use config::Config;
 use store::Store;

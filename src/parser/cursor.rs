@@ -76,6 +76,10 @@ pub fn parse_cursor_db(db_path: &str) -> anyhow::Result<(Vec<UsageRecord>, Vec<S
         let context_token_limit = data.get("contextTokenLimit").and_then(|v| v.as_u64());
         let context_usage_pct = data.get("contextUsagePercent").and_then(|v| v.as_f64());
 
+        let subtitle = data.get("subtitle").and_then(|v| v.as_str()).map(String::from);
+        let added_files_count = data.get("addedFiles").and_then(|v| v.as_u64());
+        let removed_files_count = data.get("removedFiles").and_then(|v| v.as_u64());
+
         let is_agentic = data.get("isAgentic").and_then(|v| v.as_bool());
         let subagent_count = data.get("subagentComposerIds")
             .and_then(|v| v.as_array())
@@ -158,6 +162,10 @@ pub fn parse_cursor_db(db_path: &str) -> anyhow::Result<(Vec<UsageRecord>, Vec<S
             parent_session_id: None,
             is_subagent: false,
             agent_type: None,
+            cursor_subtitle: subtitle,
+            cursor_model_name: Some(model_name.clone()),
+            added_files: added_files_count,
+            removed_files: removed_files_count,
         });
     }
 

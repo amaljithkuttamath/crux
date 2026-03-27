@@ -1,9 +1,8 @@
+pub mod browser;
 pub mod dashboard;
 pub mod help;
-pub mod history;
-pub mod sessions;
+pub mod stats;
 pub mod widgets;
-pub mod cursor_view;
 
 use crate::config::Config;
 use crate::parser;
@@ -15,10 +14,8 @@ use std::time::Instant;
 
 #[derive(PartialEq)]
 pub enum View {
-    Overview,
-    ClaudeCode,
-    Cursor,
-    History,
+    Browser,
+    Stats,
 }
 
 pub struct App {
@@ -27,9 +24,8 @@ pub struct App {
     pub view: View,
     pub should_quit: bool,
     pub show_help: bool,
-    pub dashboard_state: dashboard::DashboardState,
-    pub sessions_state: sessions::SessionsState,
-    pub cursor_state: cursor_view::CursorViewState,
+    pub browser_state: browser::BrowserState,
+    pub detail_state: dashboard::DashboardState,
     pub scroll: usize,
     watcher_rx: Option<mpsc::Receiver<Vec<String>>>,
     last_cursor_refresh: Instant,
@@ -42,28 +38,25 @@ impl App {
         let watcher_rx = parser::watcher::watch(&config.data_dir()).ok();
         let sessions_dir = dirs::home_dir().unwrap_or_default().join(".claude/sessions");
         let live_sessions = crate::parser::liveness::check_liveness(&sessions_dir);
-        let initial_view = match config.default_view.as_str() {
-            "claude_code" => View::ClaudeCode,
-            "cursor" => View::Cursor,
-            "history" => View::History,
-            _ => View::Overview,
+
+        let (initial_view, initial_filter) = match config.default_view.as_str() {
+            "claude_code" => (View::Browser, Some(browser::SourceFilter::ClaudeCode)),
+            "cursor" => (View::Browser, Some(browser::SourceFilter::Cursor)),
+            "stats" | "history" => (View::Stats, None),
+            _ => (View::Browser, None),
         };
-        let initial_sort = match config.default_sort.as_str() {
-            "age" => sessions::SortColumn::Age,
-            "ctx" => sessions::SortColumn::Ctx,
-            "status" => sessions::SortColumn::Status,
-            "duration" => sessions::SortColumn::Duration,
-            _ => sessions::SortColumn::Cost,
-        };
+        let mut browser_state = browser::BrowserState::default();
+        if let Some(filter) = initial_filter {
+            browser_state.source_filter = filter;
+        }
         Self {
             store,
             config,
             view: initial_view,
             should_quit: false,
             show_help: false,
-            dashboard_state: dashboard::DashboardState::default(),
-            sessions_state: sessions::SessionsState { sort_column: initial_sort, ..Default::default() },
-            cursor_state: cursor_view::CursorViewState::default(),
+            browser_state,
+            detail_state: dashboard::DashboardState::default(),
             scroll: 0,
             watcher_rx,
             last_cursor_refresh: Instant::now(),
@@ -107,190 +100,60 @@ impl App {
         }
 
         match self.view {
-            View::Overview => {
-                match code {
-                    KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if self.dashboard_state.detail.is_some() {
-                            // scroll detail if needed
-                        } else {
-                            self.dashboard_state.move_up();
-                        }
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if self.dashboard_state.detail.is_some() {
-                            // scroll detail if needed
-                        } else {
-                            let max = self.dashboard_state.cached_session_ids.len();
-                            self.dashboard_state.move_down(max);
-                        }
-                    }
-                    KeyCode::Enter => {
-                        self.dashboard_state.enter(&self.store);
-                    }
-                    KeyCode::Esc => {
-                        if !self.dashboard_state.back() {
-                            // already at top level
-                        }
-                    }
-                    KeyCode::Char('h') if self.dashboard_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::History;
-                    }
-                    KeyCode::Char('d') if self.dashboard_state.detail.is_none() => {
-                        self.sessions_state = sessions::SessionsState::default();
-                        self.view = View::ClaudeCode;
-                    }
-                    KeyCode::Char('c') if self.dashboard_state.detail.is_none() => {
-                        self.cursor_state = cursor_view::CursorViewState::default();
-                        self.view = View::Cursor;
-                    }
-                    KeyCode::Char('o') => { /* already on overview */ }
-                    KeyCode::Char('?') => self.show_help = true,
-                    _ => {}
-                }
-            }
-            View::ClaudeCode => {
-                // Search mode input handling
-                if self.sessions_state.search_active {
+            View::Browser => {
+                // Detail overlay: Esc dismisses it
+                if self.detail_state.detail.is_some() {
                     match code {
-                        KeyCode::Esc => {
-                            self.sessions_state.search_active = false;
-                            self.sessions_state.search_query.clear();
-                        }
-                        KeyCode::Enter => {
-                            self.sessions_state.search_active = false;
-                        }
-                        KeyCode::Backspace => {
-                            self.sessions_state.search_query.pop();
-                        }
-                        KeyCode::Char(c) => {
-                            self.sessions_state.search_query.push(c);
-                            self.sessions_state.cursor = 0;
-                            self.sessions_state.scroll = 0;
-                        }
+                        KeyCode::Esc => { self.detail_state.back(); }
+                        KeyCode::Char('q') => self.should_quit = true,
                         _ => {}
                     }
                     return;
                 }
+
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Up | KeyCode::Char('k') => self.sessions_state.move_up(),
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        let max = self.store.sessions_by_source(crate::parser::Source::ClaudeCode).len();
-                        self.sessions_state.move_down(max);
+                    KeyCode::Char('?') => self.show_help = true,
+                    KeyCode::Char('s') if self.browser_state.is_at_root() && !self.browser_state.search_active => {
+                        self.scroll = 0; self.view = View::Stats;
                     }
-                    KeyCode::Enter => self.sessions_state.enter(&self.store),
-                    KeyCode::Esc => {
-                        if !self.sessions_state.back() {
-                            self.view = View::Overview;
+                    _ => {
+                        self.browser_state.handle_key(code, &self.store);
+                        // Drain pending detail
+                        if let Some(sid) = self.browser_state.pending_detail_session_id.take() {
+                            if let Some(timeline) = self.store.session_timeline(&sid) {
+                                self.detail_state.detail = Some(dashboard::SessionDetailView {
+                                    session_id: sid,
+                                    timeline,
+                                });
+                            }
                         }
                     }
-                    KeyCode::Char('s') if self.sessions_state.detail.is_none() => {
-                        self.sessions_state.sort_column = self.sessions_state.sort_column.next();
-                    }
-                    KeyCode::Char('/') if self.sessions_state.detail.is_none() => {
-                        self.sessions_state.search_active = true;
-                    }
-                    KeyCode::Char('h') if self.sessions_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::History;
-                    }
-                    KeyCode::Char('c') if self.sessions_state.detail.is_none() => {
-                        self.cursor_state = cursor_view::CursorViewState::default();
-                        self.view = View::Cursor;
-                    }
-                    KeyCode::Char('o') if self.sessions_state.detail.is_none() => {
-                        self.view = View::Overview;
-                    }
-                    KeyCode::Char('?') => self.show_help = true,
-                    _ => {}
                 }
             }
-            View::Cursor => {
-                // Search mode input handling
-                if self.cursor_state.search_active {
-                    match code {
-                        KeyCode::Esc => {
-                            self.cursor_state.search_active = false;
-                            self.cursor_state.search_query.clear();
-                        }
-                        KeyCode::Enter => {
-                            self.cursor_state.search_active = false;
-                        }
-                        KeyCode::Backspace => {
-                            self.cursor_state.search_query.pop();
-                        }
-                        KeyCode::Char(c) => {
-                            self.cursor_state.search_query.push(c);
-                            self.cursor_state.cursor = 0;
-                            self.cursor_state.scroll = 0;
-                        }
-                        _ => {}
-                    }
-                    return;
-                }
+            View::Stats => {
                 match code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Up | KeyCode::Char('k') => self.cursor_state.move_up(),
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        let max = self.store.cursor_sessions().len();
-                        self.cursor_state.move_down(max);
-                    }
-                    KeyCode::Enter => self.cursor_state.enter(&self.store),
-                    KeyCode::Esc => {
-                        if !self.cursor_state.search_query.is_empty() {
-                            self.cursor_state.search_query.clear();
-                            self.cursor_state.cursor = 0;
-                            self.cursor_state.scroll = 0;
-                        } else if !self.cursor_state.back() {
-                            self.view = View::Overview;
-                        }
-                    }
-                    KeyCode::Char('s') if self.cursor_state.detail.is_none() => {
-                        self.cursor_state.sort_column = self.cursor_state.sort_column.next();
-                        self.cursor_state.cursor = 0;
-                        self.cursor_state.scroll = 0;
-                    }
-                    KeyCode::Char('/') if self.cursor_state.detail.is_none() => {
-                        self.cursor_state.search_active = true;
-                        self.cursor_state.search_query.clear();
-                    }
-                    KeyCode::Char('d') if self.cursor_state.detail.is_none() => {
-                        self.sessions_state = sessions::SessionsState::default();
-                        self.view = View::ClaudeCode;
-                    }
-                    KeyCode::Char('h') if self.cursor_state.detail.is_none() => {
-                        self.scroll = 0; self.view = View::History;
-                    }
-                    KeyCode::Char('o') if self.cursor_state.detail.is_none() => {
-                        self.view = View::Overview;
-                    }
                     KeyCode::Char('?') => self.show_help = true,
-                    _ => {}
-                }
-            }
-            View::History => {
-                match code {
-                    KeyCode::Char('q') => self.should_quit = true,
                     KeyCode::Up | KeyCode::Char('k') => {
                         self.scroll = self.scroll.saturating_sub(1);
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
                         self.scroll += 1;
                     }
-                    KeyCode::Esc => { self.scroll = 0; self.view = View::Overview; }
+                    KeyCode::Esc | KeyCode::Char('b') => {
+                        self.scroll = 0; self.view = View::Browser;
+                    }
                     KeyCode::Char('d') => {
-                        self.sessions_state = sessions::SessionsState::default();
-                        self.view = View::ClaudeCode;
+                        self.browser_state = browser::BrowserState::default();
+                        self.browser_state.source_filter = browser::SourceFilter::ClaudeCode;
+                        self.scroll = 0; self.view = View::Browser;
                     }
                     KeyCode::Char('c') => {
-                        self.cursor_state = cursor_view::CursorViewState::default();
-                        self.view = View::Cursor;
+                        self.browser_state = browser::BrowserState::default();
+                        self.browser_state.source_filter = browser::SourceFilter::Cursor;
+                        self.scroll = 0; self.view = View::Browser;
                     }
-                    KeyCode::Char('o') => {
-                        self.scroll = 0;
-                        self.view = View::Overview;
-                    }
-                    KeyCode::Char('?') => self.show_help = true,
                     _ => {}
                 }
             }
@@ -299,10 +162,14 @@ impl App {
 
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view {
-            View::Overview => dashboard::render(frame, &self.store, &self.config, &mut self.dashboard_state, &self.live_sessions),
-            View::History => history::render(frame, &self.store, &self.config, self.scroll),
-            View::ClaudeCode => sessions::render(frame, &self.store, &self.config, &mut self.sessions_state, &self.live_sessions),
-            View::Cursor => cursor_view::render(frame, &self.store, &self.config, &mut self.cursor_state, &self.live_sessions),
+            View::Browser => {
+                if self.detail_state.detail.is_some() {
+                    dashboard::render_detail(frame, &self.store, &self.config, &mut self.detail_state, &self.live_sessions);
+                } else {
+                    browser::render(frame, &self.store, &self.config, &mut self.browser_state, &self.live_sessions);
+                }
+            }
+            View::Stats => stats::render(frame, &self.store, &self.config, self.scroll),
         }
 
         if self.show_help {
